@@ -19,8 +19,10 @@ money against real live market prices, with an AI broker to consult with.
   portfolio + market snapshot and gives concrete, risk-aware trade ideas.
   Runs through a Netlify Function (`netlify/functions/broker.js`) so the API
   key stays server-side. Chat history persists locally like the rest.
-- Everything persists in the browser's localStorage - per device, no backend
-  database.
+- **User accounts** (optional, via Supabase) - email + password sign-up;
+  the portfolio, watchlist, history and broker chat sync to the cloud and
+  follow the user across devices. Without Supabase configured the site runs
+  local-only (localStorage, per device).
 - Hebrew RTL UI, dark purple-to-cyan theme.
 
 ## Run locally
@@ -50,6 +52,38 @@ ANTHROPIC_API_KEY = sk-ant-...   (from console.anthropic.com)
 
 Without the key the site still works fully - only the broker chat replies
 with a configuration error.
+
+## User accounts (cloud-saved portfolios)
+
+Accounts are powered by Supabase (the free tier is plenty). Until it is
+configured the site runs local-only, and the login button explains that
+accounts are not enabled yet.
+
+Setup (~5 minutes):
+
+1. Create a free project at supabase.com (any name and region).
+2. In the project: SQL Editor → New query → run:
+
+```sql
+create table public.portfolios (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  data jsonb not null,
+  updated_at timestamptz not null default now()
+);
+alter table public.portfolios enable row level security;
+create policy "own row" on public.portfolios
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+```
+
+3. Authentication → Sign In / Up: the Email provider is on by default.
+   Optional: turn OFF "Confirm email" so friends can skip the
+   verification-mail step.
+4. Project Settings → API (or "API Keys"): copy the Project URL and the
+   `anon` `public` key into `config.js` in this repo, commit, push.
+
+Users then sign up with email + password. Each user's data is protected by
+row level security (a user can only read/write their own row), and the anon
+key is safe to expose in the browser.
 
 ## Going to real money later
 
