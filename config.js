@@ -5,6 +5,6 @@
 // public key here. Leave empty to run in local-only mode (no login, data
 // stays in this browser).
 window.TR_CONFIG = {
-  SUPABASE_URL: '',
+  SUPABASE_URL: 'https://sflcnqzntmxzyifwzkpr.supabase.co',
   SUPABASE_ANON_KEY: ''
 };
