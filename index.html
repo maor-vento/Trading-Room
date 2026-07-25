@@ -162,41 +162,7 @@
   }
   .scroll-x { overflow-x: auto; }
 
-  /* Broker chat */
-  .ai-badge {
-    font-family: var(--mono); font-size: 10px; font-weight: 700; color: #06121a;
-    background: linear-gradient(90deg, #a78bfa, var(--cyan));
-    padding: 3px 8px; border-radius: 6px;
-  }
-  #chatBox {
-    height: 320px; overflow-y: auto; display: flex; flex-direction: column;
-    gap: 10px; padding: 4px 2px; margin-bottom: 12px;
-  }
-  .msg { max-width: 88%; padding: 10px 14px; border-radius: 14px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
-  .msg.user { align-self: flex-start; background: rgba(124,58,237,0.25); border: 1px solid rgba(124,58,237,0.4); border-bottom-right-radius: 4px; align-self: flex-end; }
-  .msg.broker { align-self: flex-start; background: var(--bg-2); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
-  .msg.broker.err { border-color: rgba(248,113,113,0.4); color: var(--red); }
-  .msg.typing { color: var(--muted); }
-  .msg.typing .dots::after { content: '...'; animation: dots 1.2s steps(4) infinite; }
-  @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
-  .chat-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-  .chat-chips button {
-    background: transparent; border: 1px solid var(--border); color: var(--muted);
-    font-family: inherit; font-size: 11px; padding: 6px 10px; border-radius: 999px; cursor: pointer;
-  }
-  .chat-chips button:hover { border-color: var(--cyan); color: var(--cyan); }
-  .chat-input-row { display: flex; gap: 8px; }
-  .chat-input-row input {
-    flex: 1; background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px;
-    color: var(--text); font-family: inherit; font-size: 13px; padding: 11px 14px;
-  }
-  .chat-input-row input:focus { outline: none; border-color: var(--purple); }
-  .chat-input-row button {
-    background: linear-gradient(90deg, #7c3aed, #22d3ee); border: none; border-radius: 12px;
-    color: #fff; font-family: inherit; font-weight: 700; font-size: 13px;
-    padding: 0 18px; cursor: pointer;
-  }
-  .chat-input-row button:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* The floating broker chat lives in broker-widget.js */
 </style>
 </head>
 <body>
@@ -269,20 +235,6 @@
         <div class="form-msg" id="formMsg"></div>
       </div>
 
-      <div class="card">
-        <h2>הברוקר שלי <span class="ai-badge">AI</span></h2>
-        <div id="chatBox"></div>
-        <div class="chat-chips" id="chatChips">
-          <button>מה כדאי לסחור עכשיו?</button>
-          <button>נתח את התיק שלי</button>
-          <button>בנה לי תוכנית מסחר</button>
-          <button>איך אני מנהל סיכונים נכון?</button>
-        </div>
-        <div class="chat-input-row">
-          <input type="text" id="chatInput" placeholder="שאל את הברוקר..." maxlength="2000">
-          <button id="chatSend">שלח</button>
-        </div>
-      </div>
     </div>
 
     <div>
@@ -376,7 +328,7 @@
   var online = false;
 
   function freshState() {
-    return { cash: START_CASH, holdings: {}, trades: [], realized: 0, equityHistory: [], chat: [] };
+    return { cash: START_CASH, holdings: {}, trades: [], realized: 0, equityHistory: [] };
   }
   function load() {
     try { return JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) { return null; }
@@ -710,12 +662,8 @@
     fetchKlines();
   }
 
-  // ---------- broker chat ----------
-  var BROKER_URL = '/.netlify/functions/broker';
-  if (!state.chat) state.chat = [];
-  var chatBusy = false;
-
-  function chatContext() {
+  // ---------- broker context (used by the floating chat widget) ----------
+  window.brokerContext = function () {
     var holdings = Object.keys(state.holdings).map(function (sym) {
       var h = state.holdings[sym], p = prices[sym];
       return {
@@ -743,86 +691,7 @@
         return { side: t.side, symbol: t.sym, qty: t.qty, price_usd: t.price, time: new Date(t.t).toISOString() };
       })
     };
-  }
-
-  function renderChat() {
-    var box = document.getElementById('chatBox');
-    box.innerHTML = '';
-    if (!state.chat.length) {
-      var hello = document.createElement('div');
-      hello.className = 'msg broker';
-      hello.textContent = 'היי, אני הברוקר שלך. אני רואה את התיק ואת מחירי השוק בזמן אמת - שאל אותי מה כדאי לסחור, בקש ניתוח של התיק, או נבנה יחד תוכנית מסחר.';
-      box.appendChild(hello);
-    }
-    state.chat.forEach(function (m) {
-      var el = document.createElement('div');
-      el.className = 'msg ' + (m.role === 'user' ? 'user' : 'broker') + (m.err ? ' err' : '');
-      el.textContent = m.content;
-      box.appendChild(el);
-    });
-    if (chatBusy) {
-      var t = document.createElement('div');
-      t.className = 'msg broker typing';
-      t.innerHTML = 'הברוקר חושב<span class="dots"></span>';
-      box.appendChild(t);
-    }
-    box.scrollTop = box.scrollHeight;
-  }
-
-  function sendChat(text) {
-    text = (text || '').trim();
-    if (!text || chatBusy) return;
-    state.chat.push({ role: 'user', content: text });
-    if (state.chat.length > 40) state.chat.splice(0, state.chat.length - 40);
-    save();
-    chatBusy = true;
-    document.getElementById('chatSend').disabled = true;
-    document.getElementById('chatInput').value = '';
-    renderChat();
-
-    var payload = {
-      messages: state.chat.filter(function (m) { return !m.err; })
-        .map(function (m) { return { role: m.role, content: m.content }; }),
-      context: chatContext()
-    };
-    fetch(BROKER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-      .then(function (r) {
-        return r.json().then(function (data) { return { ok: r.ok, data: data }; });
-      })
-      .then(function (res) {
-        if (res.ok && res.data.reply) {
-          state.chat.push({ role: 'assistant', content: res.data.reply });
-        } else {
-          state.chat.push({ role: 'assistant', err: true, content: res.data.error || 'שגיאה זמנית - נסה שוב' });
-        }
-      })
-      .catch(function () {
-        state.chat.push({
-          role: 'assistant', err: true,
-          content: 'הברוקר לא זמין כאן - הוא עובד רק בגרסה המפורסמת ב-Netlify (נדרש מפתח API בהגדרות האתר).'
-        });
-      })
-      .then(function () {
-        chatBusy = false;
-        document.getElementById('chatSend').disabled = false;
-        save();
-        renderChat();
-      });
-  }
-
-  document.getElementById('chatSend').addEventListener('click', function () {
-    sendChat(document.getElementById('chatInput').value);
-  });
-  document.getElementById('chatInput').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') sendChat(this.value);
-  });
-  document.getElementById('chatChips').addEventListener('click', function (e) {
-    if (e.target.tagName === 'BUTTON') sendChat(e.target.textContent);
-  });
+  };
 
   // ---------- events ----------
   document.getElementById('tabBuy').addEventListener('click', function () { setSide('buy'); });
@@ -858,14 +727,13 @@
     if (confirm('לאפס את התיק? כל העסקאות וההיסטוריה יימחקו ותחזור ל-' + fmtUsd(START_CASH))) {
       state = freshState(); save(); lastRenderedPx = {};
       document.getElementById('formMsg').textContent = '';
-      renderAll(); renderChat();
+      renderAll();
     }
   });
   window.addEventListener('resize', function () { drawPriceChart(); drawEquityChart(); });
 
   // ---------- boot ----------
   renderAll();
-  renderChat();
   fetchTickers().then(function () { renderAll(); snapshotEquity(false); });
   fetchKlines();
   setInterval(function () {
@@ -877,5 +745,6 @@
   setInterval(fetchKlines, 60000);
 })();
 </script>
+<script src="/broker-widget.js" defer></script>
 </body>
 </html>
