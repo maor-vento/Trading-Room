@@ -95,6 +95,42 @@
   .asset-row .sym small { color: var(--muted); font-weight: 500; display: block; font-size: 11px; }
   .asset-row .px { font-family: var(--mono); font-size: 13px; text-align: left; direction: ltr; }
   .asset-row .px small { display: block; font-size: 11px; }
+  .asset-row .rm {
+    background: none; border: none; color: var(--muted); font-size: 13px; cursor: pointer;
+    padding: 4px 6px; margin-inline-start: 4px; border-radius: 6px; opacity: 0.5;
+  }
+  .asset-row .rm:hover { color: var(--red); opacity: 1; }
+  .add-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .add-row input {
+    flex: 1; min-width: 0; background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); font-family: inherit; font-size: 13px; padding: 9px 12px;
+  }
+  .add-row input:focus { outline: none; border-color: var(--purple); }
+  .add-row button {
+    background: rgba(124,58,237,0.25); border: 1px solid var(--purple); color: var(--text);
+    font-size: 18px; font-weight: 700; width: 40px; border-radius: 10px; cursor: pointer;
+  }
+  .add-row button:hover { background: rgba(124,58,237,0.45); }
+
+  /* Recommended-today list */
+  .hot-note { font-size: 11px; font-weight: 400; color: var(--muted); }
+  .hot-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 12px; border-radius: 12px; border: 1px solid transparent;
+  }
+  .hot-row:hover { background: rgba(255,255,255,0.04); }
+  .hot-row .sym { font-weight: 600; font-size: 14px; }
+  .hot-row .sym small { color: var(--muted); font-weight: 500; display: block; font-size: 11px; direction: ltr; text-align: right; }
+  .hot-row .px { font-family: var(--mono); font-size: 13px; direction: ltr; text-align: left; }
+  .hot-row .px small { display: block; font-size: 11px; }
+  .hot-row .follow {
+    background: transparent; border: 1px solid var(--border); color: var(--cyan);
+    font-family: inherit; font-size: 12px; font-weight: 600; padding: 7px 12px;
+    border-radius: 999px; cursor: pointer; white-space: nowrap;
+  }
+  .hot-row .follow:hover { border-color: var(--cyan); }
+  .hot-row .follow.done { color: var(--green); border-color: rgba(52,211,153,0.4); cursor: default; }
+
   .flash-up { animation: flashUp 0.6s; } .flash-down { animation: flashDown 0.6s; }
   @keyframes flashUp { 0% { background: rgba(52,211,153,0.2); } 100% { background: transparent; } }
   @keyframes flashDown { 0% { background: rgba(248,113,113,0.2); } 100% { background: transparent; } }
@@ -190,7 +226,6 @@
     .asset-row { padding: 12px; }
     .reset-btn { padding: 9px 14px; }
     #priceChart { height: 200px !important; }
-    #equityChart { height: 140px !important; }
   }
 </style>
 </head>
@@ -235,7 +270,12 @@
   <div class="grid">
     <div>
       <div class="card">
-        <h2>רשימת מעקב</h2>
+        <h2>המעקב שלי</h2>
+        <div class="add-row">
+          <input type="text" id="addSymbol" placeholder="הוסף מטבע - למשל PEPE" maxlength="12">
+          <button id="addBtn" aria-label="הוסף למעקב">+</button>
+        </div>
+        <div class="form-msg" id="watchMsg"></div>
         <div id="watchlist"></div>
       </div>
 
@@ -298,8 +338,9 @@
       </div>
 
       <div class="card">
-        <h2>עקומת הון</h2>
-        <canvas id="equityChart" height="160"></canvas>
+        <h2>מומלצות היום <span class="hot-note">התנועות החזקות ב-24 שעות, בנפח מסחר גבוה</span></h2>
+        <div id="hotlist"></div>
+        <div class="empty" id="hotEmpty">טוען נתוני שוק...</div>
       </div>
 
       <div class="card">
@@ -330,7 +371,7 @@
 (function () {
   'use strict';
 
-  var SYMBOLS = [
+  var DEFAULT_SYMBOLS = [
     { s: 'BTCUSDT', base: 'BTC', name: 'ביטקוין' },
     { s: 'ETHUSDT', base: 'ETH', name: 'את\'ריום' },
     { s: 'SOLUSDT', base: 'SOL', name: 'סולאנה' },
@@ -342,6 +383,7 @@
     { s: 'LINKUSDT', base: 'LINK', name: 'צ\'יינלינק' },
     { s: 'DOTUSDT', base: 'DOT', name: 'פולקדוט' }
   ];
+  var SYMBOLS; // the user's personal watchlist - set after state loads
   var FEE = 0.001;               // 0.1% per trade
   var START_CASH = 100000;       // virtual USD
   var STORE_KEY = 'paper-trading-v1';
@@ -349,7 +391,10 @@
   var API = 'https://api.binance.com/api/v3';
 
   var state = load() || freshState();
+  if (!state.watchlist || !state.watchlist.length) state.watchlist = DEFAULT_SYMBOLS.slice();
+  SYMBOLS = state.watchlist;
   var prices = {};               // symbol -> { price, changePct }
+  var allTickers = null;         // full Binance USDT market map, refreshed every few minutes
   var selected = SYMBOLS[0].s;
   var side = 'buy';
   var interval = '1h';
@@ -357,7 +402,7 @@
   var online = false;
 
   function freshState() {
-    return { cash: START_CASH, holdings: {}, trades: [], realized: 0, equityHistory: [] };
+    return { cash: START_CASH, holdings: {}, trades: [], realized: 0, equityHistory: [], watchlist: DEFAULT_SYMBOLS.slice() };
   }
   function load() {
     try { return JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) { return null; }
@@ -387,7 +432,8 @@
   }
   function meta(sym) {
     for (var i = 0; i < SYMBOLS.length; i++) if (SYMBOLS[i].s === sym) return SYMBOLS[i];
-    return { s: sym, base: sym, name: sym };
+    var base = sym.replace(/USDT$/, '');
+    return { s: sym, base: base, name: base };
   }
 
   // ---------- market data ----------
@@ -412,6 +458,102 @@
       })
       .catch(function () { /* keep last chart */ });
   }
+  // ---------- market scan (recommended today) ----------
+  var STABLE_BASES = { USDC: 1, TUSD: 1, FDUSD: 1, DAI: 1, BUSD: 1, USDP: 1, EUR: 1, EURI: 1, AEUR: 1, USD1: 1, XUSD: 1, PAXG: 1 };
+  function fetchAllTickers() {
+    return fetch(API + '/ticker/24hr')
+      .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+      .then(function (arr) {
+        allTickers = {};
+        arr.forEach(function (t) {
+          if (!/USDT$/.test(t.symbol)) return;
+          if (/(UP|DOWN|BULL|BEAR)USDT$/.test(t.symbol)) return;
+          allTickers[t.symbol] = {
+            price: parseFloat(t.lastPrice),
+            changePct: parseFloat(t.priceChangePercent),
+            volume: parseFloat(t.quoteVolume)
+          };
+        });
+        renderHot();
+      })
+      .catch(function () { /* keep last scan */ });
+  }
+  function hotPicks() {
+    if (!allTickers) return [];
+    return Object.keys(allTickers)
+      .filter(function (s) {
+        var t = allTickers[s];
+        return t.volume > 20000000 && t.price > 0 && !STABLE_BASES[s.replace(/USDT$/, '')];
+      })
+      .sort(function (a, b) { return allTickers[b].changePct - allTickers[a].changePct; })
+      .slice(0, 6);
+  }
+  function renderHot() {
+    var el = document.getElementById('hotlist');
+    var picks = hotPicks();
+    document.getElementById('hotEmpty').style.display = picks.length ? 'none' : 'block';
+    el.innerHTML = '';
+    picks.forEach(function (s) {
+      var t = allTickers[s];
+      var followed = SYMBOLS.some(function (m) { return m.s === s; });
+      var row = document.createElement('div');
+      row.className = 'hot-row';
+      row.innerHTML =
+        '<div class="sym">' + s.replace(/USDT$/, '') + '<small>' + fmtUsd(t.volume / 1e6, 0) + 'M מחזור</small></div>' +
+        '<div class="px">' + fmtPx(t.price) +
+          '<small class="' + (t.changePct >= 0 ? 'pos' : 'neg') + '">' + fmtPct(t.changePct) + '</small></div>' +
+        '<button class="follow' + (followed ? ' done' : '') + '">' + (followed ? '✓ במעקב' : '+ עקוב') + '</button>';
+      row.querySelector('.follow').addEventListener('click', function () {
+        if (!SYMBOLS.some(function (m) { return m.s === s; })) follow(s);
+      });
+      el.appendChild(row);
+    });
+  }
+
+  // ---------- watchlist management ----------
+  function watchMsg(text, ok) {
+    var el = document.getElementById('watchMsg');
+    el.textContent = text || '';
+    el.className = 'form-msg ' + (ok ? 'pos' : 'neg');
+  }
+  function follow(sym) {
+    SYMBOLS.push({ s: sym, base: sym.replace(/USDT$/, ''), name: sym.replace(/USDT$/, '') });
+    save();
+    watchMsg(sym.replace(/USDT$/, '') + ' נוסף למעקב', true);
+    renderWatchlist(); renderHot();
+    fetchTickers().then(function () { renderAll(); });
+    selectSymbol(sym);
+  }
+  function unfollow(sym) {
+    if (state.holdings[sym]) return watchMsg('אי אפשר להסיר נכס שאתה מחזיק - מכור קודם', false);
+    if (SYMBOLS.length <= 1) return watchMsg('חייב להישאר לפחות נכס אחד במעקב', false);
+    for (var i = SYMBOLS.length - 1; i >= 0; i--) if (SYMBOLS[i].s === sym) SYMBOLS.splice(i, 1);
+    delete prices[sym];
+    save();
+    watchMsg('');
+    if (selected === sym) selected = SYMBOLS[0].s;
+    renderWatchlist(); renderHot(); renderAll();
+    if (selected !== sym) fetchKlines();
+  }
+  function tryAddSymbol() {
+    var input = document.getElementById('addSymbol');
+    var base = (input.value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!base) return;
+    var sym = /USDT$/.test(base) ? base : base + 'USDT';
+    if (SYMBOLS.some(function (m) { return m.s === sym; })) {
+      input.value = '';
+      return watchMsg(sym.replace(/USDT$/, '') + ' כבר במעקב', true);
+    }
+    var check = allTickers
+      ? Promise.resolve(!!allTickers[sym])
+      : fetch(API + '/ticker/24hr?symbol=' + sym).then(function (r) { return r.ok; }).catch(function () { return false; });
+    check.then(function (exists) {
+      if (!exists) return watchMsg('לא נמצא מסחר ל-' + base + ' מול USDT ב-Binance', false);
+      input.value = '';
+      follow(sym);
+    });
+  }
+
   function setOnline(v) {
     online = v;
     var badge = document.getElementById('liveBadge');
@@ -503,15 +645,26 @@
 
   // ---------- rendering ----------
   var lastRenderedPx = {};
+  var renderedKey = '';
   function renderWatchlist() {
     var el = document.getElementById('watchlist');
-    if (!el.childElementCount) {
+    var key = SYMBOLS.map(function (m) { return m.s; }).join(',');
+    if (key !== renderedKey) {
+      renderedKey = key;
+      lastRenderedPx = {};
+      el.innerHTML = '';
       SYMBOLS.forEach(function (m) {
         var row = document.createElement('div');
         row.className = 'asset-row'; row.id = 'row-' + m.s;
-        row.innerHTML = '<div class="sym">' + m.base + '<small>' + m.name + '</small></div>' +
-                        '<div class="px"><span class="p">-</span><small class="c"></small></div>';
+        row.innerHTML = '<div class="sym">' + m.base + '<small>' + (m.name || m.base) + '</small></div>' +
+                        '<div style="display:flex;align-items:center;">' +
+                        '<div class="px"><span class="p">-</span><small class="c"></small></div>' +
+                        '<button class="rm" title="הסר מהמעקב">✕</button></div>';
         row.addEventListener('click', function () { selectSymbol(m.s); });
+        row.querySelector('.rm').addEventListener('click', function (e) {
+          e.stopPropagation();
+          unfollow(m.s);
+        });
         el.appendChild(row);
       });
     }
@@ -600,7 +753,7 @@
   }
   function renderAll() {
     renderWatchlist(); renderStats(); renderHoldings(); renderTrades(); renderChartHead();
-    drawEquityChart(); updateTradeSummary();
+    updateTradeSummary();
   }
 
   // ---------- charts (canvas) ----------
@@ -645,11 +798,6 @@
     var pts = klines.map(function (k) { return k.c; });
     var up = pts.length > 1 && pts[pts.length - 1] >= pts[0];
     drawLineChart(document.getElementById('priceChart'), pts, up ? '#34d399' : '#f87171', up ? '#22d3ee' : '#fb923c');
-  }
-  function drawEquityChart() {
-    var pts = state.equityHistory.map(function (e) { return e.v; });
-    if (pts.length < 2) pts = [START_CASH, equity() || START_CASH];
-    drawLineChart(document.getElementById('equityChart'), pts, '#7c3aed', '#22d3ee');
   }
 
   // ---------- trade form ----------
@@ -716,6 +864,10 @@
       trades_count: state.trades.length,
       holdings: holdings,
       market_24h: market,
+      recommended_today_top_movers: hotPicks().map(function (s) {
+        var t = allTickers[s];
+        return { symbol: s, price_usd: t.price, change_24h_pct: t.changePct, volume_24h_usd: t.volume };
+      }),
       recent_trades: state.trades.slice(0, 8).map(function (t) {
         return { side: t.side, symbol: t.sym, qty: t.qty, price_usd: t.price, time: new Date(t.t).toISOString() };
       })
@@ -754,21 +906,32 @@
   });
   document.getElementById('resetBtn').addEventListener('click', function () {
     if (confirm('לאפס את התיק? כל העסקאות וההיסטוריה יימחקו ותחזור ל-' + fmtUsd(START_CASH))) {
-      state = freshState(); save(); lastRenderedPx = {};
+      state = freshState(); SYMBOLS = state.watchlist; selected = SYMBOLS[0].s;
+      save(); lastRenderedPx = {}; renderedKey = '';
       document.getElementById('formMsg').textContent = '';
-      renderAll();
+      watchMsg('');
+      renderAll(); renderHot();
+      fetchTickers().then(function () { renderAll(); });
+      fetchKlines();
     }
   });
-  window.addEventListener('resize', function () { drawPriceChart(); drawEquityChart(); });
+  window.addEventListener('resize', function () { drawPriceChart(); });
+
+  document.getElementById('addBtn').addEventListener('click', tryAddSymbol);
+  document.getElementById('addSymbol').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') tryAddSymbol();
+  });
 
   // ---------- boot ----------
   renderAll();
   fetchTickers().then(function () { renderAll(); snapshotEquity(false); });
   fetchKlines();
+  fetchAllTickers();
+  setInterval(fetchAllTickers, 300000);
   setInterval(function () {
     fetchTickers().then(function () {
       renderWatchlist(); renderStats(); renderHoldings(); renderChartHead();
-      updateTradeSummary(); snapshotEquity(false); drawEquityChart();
+      updateTradeSummary(); snapshotEquity(false);
     });
   }, POLL_MS);
   setInterval(fetchKlines, 60000);
