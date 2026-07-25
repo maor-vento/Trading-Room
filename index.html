@@ -272,7 +272,7 @@
       <div class="card">
         <h2>המעקב שלי</h2>
         <div class="add-row">
-          <input type="text" id="addSymbol" placeholder="הוסף מטבע - למשל PEPE" maxlength="12">
+          <input type="text" id="addSymbol" placeholder="הוסף מטבע או מניה - למשל PEPE או JFrog" maxlength="40">
           <button id="addBtn" aria-label="הוסף למעקב">+</button>
         </div>
         <div class="form-msg" id="watchMsg"></div>
@@ -338,7 +338,7 @@
       </div>
 
       <div class="card">
-        <h2>מומלצות היום <span class="hot-note">התנועות החזקות ב-24 שעות, בנפח מסחר גבוה</span></h2>
+        <h2>מומלצות היום <span class="hot-note">קריפטו: התנועות החזקות ב-24 שעות, בנפח מסחר גבוה</span></h2>
         <div id="hotlist"></div>
         <div class="empty" id="hotEmpty">טוען נתוני שוק...</div>
       </div>
@@ -437,19 +437,59 @@
   }
 
   // ---------- market data ----------
+  var QUOTES_URL = '/.netlify/functions/quotes';
+  function isStock(m) { return m && m.type === 'stock'; }
+  var stockTick = 0;
+  var lastStockError = false;
   function fetchTickers() {
-    var q = encodeURIComponent(JSON.stringify(SYMBOLS.map(function (x) { return x.s; })));
-    return fetch(API + '/ticker/24hr?symbols=' + q)
-      .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
-      .then(function (arr) {
-        arr.forEach(function (t) {
-          prices[t.symbol] = { price: parseFloat(t.lastPrice), changePct: parseFloat(t.priceChangePercent) };
-        });
-        setOnline(true);
-      })
-      .catch(function () { setOnline(false); });
+    var cryptoSyms = [], stockSyms = [];
+    SYMBOLS.forEach(function (m) { (isStock(m) ? stockSyms : cryptoSyms).push(m.s); });
+
+    var jobs = [];
+    if (cryptoSyms.length) {
+      var q = encodeURIComponent(JSON.stringify(cryptoSyms));
+      jobs.push(fetch(API + '/ticker/24hr?symbols=' + q)
+        .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+        .then(function (arr) {
+          arr.forEach(function (t) {
+            prices[t.symbol] = { price: parseFloat(t.lastPrice), changePct: parseFloat(t.priceChangePercent) };
+          });
+          return true;
+        })
+        .catch(function () { return false; }));
+    }
+    // Stocks poll every 3rd tick (~15s) - they move slower and the data is
+    // last-trade anyway (during market hours; frozen when the exchange is closed).
+    if (stockSyms.length && (stockTick++ % 3 === 0 || lastStockError)) {
+      jobs.push(fetch(QUOTES_URL + '?symbols=' + encodeURIComponent(stockSyms.join(',')))
+        .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+        .then(function (map) {
+          Object.keys(map).forEach(function (s) {
+            prices[s] = { price: map[s].price, changePct: map[s].changePct };
+          });
+          lastStockError = false;
+          return true;
+        })
+        .catch(function () { lastStockError = true; return false; }));
+    }
+    if (!jobs.length) jobs.push(Promise.resolve(true));
+    return Promise.all(jobs).then(function (oks) {
+      setOnline(oks.some(function (v) { return v; }));
+    });
   }
+  var STOCK_RANGES = { '15m': { i: '15m', r: '5d' }, '1h': { i: '60m', r: '1mo' }, '4h': { i: '60m', r: '3mo' }, '1d': { i: '1d', r: '1y' } };
   function fetchKlines() {
+    var m = meta(selected);
+    if (isStock(m)) {
+      var conf = STOCK_RANGES[interval] || STOCK_RANGES['1h'];
+      return fetch(QUOTES_URL + '?history=' + encodeURIComponent(selected) + '&interval=' + conf.i + '&range=' + conf.r)
+        .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+        .then(function (data) {
+          klines = (data.closes || []).map(function (c, i) { return { t: i, c: c }; });
+          drawPriceChart();
+        })
+        .catch(function () { /* keep last chart */ });
+    }
     return fetch(API + '/klines?symbol=' + selected + '&interval=' + interval + '&limit=120')
       .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
       .then(function (arr) {
@@ -516,13 +556,17 @@
     el.textContent = text || '';
     el.className = 'form-msg ' + (ok ? 'pos' : 'neg');
   }
-  function follow(sym) {
-    SYMBOLS.push({ s: sym, base: sym.replace(/USDT$/, ''), name: sym.replace(/USDT$/, '') });
+  function follow(entry) {
+    if (typeof entry === 'string') {
+      entry = { s: entry, base: entry.replace(/USDT$/, ''), name: entry.replace(/USDT$/, '') };
+    }
+    SYMBOLS.push(entry);
     save();
-    watchMsg(sym.replace(/USDT$/, '') + ' נוסף למעקב', true);
+    watchMsg((entry.name || entry.base) + ' נוסף למעקב', true);
     renderWatchlist(); renderHot();
+    stockTick = 0; // make sure a fresh stock gets priced immediately
     fetchTickers().then(function () { renderAll(); });
-    selectSymbol(sym);
+    selectSymbol(entry.s);
   }
   function unfollow(sym) {
     if (state.holdings[sym]) return watchMsg('אי אפשר להסיר נכס שאתה מחזיק - מכור קודם', false);
@@ -537,20 +581,52 @@
   }
   function tryAddSymbol() {
     var input = document.getElementById('addSymbol');
-    var base = (input.value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (!base) return;
+    var raw = (input.value || '').trim();
+    if (!raw) return;
+    var base = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
     var sym = /USDT$/.test(base) ? base : base + 'USDT';
-    if (SYMBOLS.some(function (m) { return m.s === sym; })) {
+    if (SYMBOLS.some(function (m) { return m.s === sym || m.s === base; })) {
       input.value = '';
-      return watchMsg(sym.replace(/USDT$/, '') + ' כבר במעקב', true);
+      return watchMsg('כבר במעקב', true);
     }
-    var check = allTickers
-      ? Promise.resolve(!!allTickers[sym])
-      : fetch(API + '/ticker/24hr?symbol=' + sym).then(function (r) { return r.ok; }).catch(function () { return false; });
-    check.then(function (exists) {
-      if (!exists) return watchMsg('לא נמצא מסחר ל-' + base + ' מול USDT ב-Binance', false);
-      input.value = '';
-      follow(sym);
+    watchMsg('מחפש...', true);
+    // First look for a Binance USDT pair; if none, search the stock market.
+    var cryptoCheck = base
+      ? (allTickers
+          ? Promise.resolve(!!allTickers[sym])
+          : fetch(API + '/ticker/24hr?symbol=' + sym).then(function (r) { return r.ok; }).catch(function () { return false; }))
+      : Promise.resolve(false);
+    cryptoCheck.then(function (isCrypto) {
+      if (isCrypto) {
+        input.value = '';
+        return follow(sym);
+      }
+      return fetch(QUOTES_URL + '?search=' + encodeURIComponent(raw.slice(0, 40)))
+        .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+        .then(function (list) {
+          if (!list || !list.length) {
+            return watchMsg('לא נמצא נכס בשם "' + raw + '" - לא בקריפטו ולא בבורסה', false);
+          }
+          var pick = list[0];
+          if (SYMBOLS.some(function (m) { return m.s === pick.symbol; })) {
+            input.value = '';
+            return watchMsg(pick.symbol + ' כבר במעקב', true);
+          }
+          return fetch(QUOTES_URL + '?symbols=' + encodeURIComponent(pick.symbol))
+            .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+            .then(function (map) {
+              var qte = map[pick.symbol];
+              if (!qte) return watchMsg('לא הצלחתי לקבל מחיר עבור ' + pick.symbol, false);
+              if (qte.currency !== 'USD') {
+                return watchMsg('כרגע נתמכות רק מניות שנסחרות בדולר (' + pick.symbol + ' נסחרת ב-' + qte.currency + ')', false);
+              }
+              input.value = '';
+              follow({ s: pick.symbol, base: pick.symbol, name: qte.name || pick.name, type: 'stock' });
+            });
+        })
+        .catch(function () {
+          watchMsg('שירות המניות לא זמין כרגע - נסה שוב עוד רגע', false);
+        });
     });
   }
 
@@ -558,7 +634,7 @@
     online = v;
     var badge = document.getElementById('liveBadge');
     badge.classList.toggle('offline', !v);
-    document.getElementById('liveText').textContent = v ? 'שוק חי - Binance' : 'אין חיבור לשוק - מנסה שוב...';
+    document.getElementById('liveText').textContent = v ? 'שוק חי - קריפטו ומניות' : 'אין חיבור לשוק - מנסה שוב...';
   }
 
   // ---------- portfolio math ----------
@@ -656,7 +732,7 @@
       SYMBOLS.forEach(function (m) {
         var row = document.createElement('div');
         row.className = 'asset-row'; row.id = 'row-' + m.s;
-        row.innerHTML = '<div class="sym">' + m.base + '<small>' + (m.name || m.base) + '</small></div>' +
+        row.innerHTML = '<div class="sym">' + m.base + '<small>' + (m.name || m.base) + (isStock(m) ? ' · מניה' : '') + '</small></div>' +
                         '<div style="display:flex;align-items:center;">' +
                         '<div class="px"><span class="p">-</span><small class="c"></small></div>' +
                         '<button class="rm" title="הסר מהמעקב">✕</button></div>';
@@ -741,7 +817,9 @@
   }
   function renderChartHead() {
     var m = meta(selected), p = prices[selected];
-    document.getElementById('chartSym').textContent = m.name + ' - ' + m.base + '/USDT';
+    document.getElementById('chartSym').textContent = isStock(m)
+      ? m.name + ' - ' + m.base + ' (מניה)'
+      : m.name + ' - ' + m.base + '/USDT';
     document.getElementById('tradeTitle').textContent = 'מסחר - ' + m.base;
     document.getElementById('sellUnit').textContent = m.base;
     if (p) {
@@ -845,6 +923,7 @@
       var h = state.holdings[sym], p = prices[sym];
       return {
         symbol: sym, qty: h.qty,
+        asset_type: isStock(meta(sym)) ? 'stock' : 'crypto',
         avg_cost_usd: h.qty ? h.cost / h.qty : 0,
         current_price_usd: p ? p.price : null,
         unrealized_pnl_usd: p ? h.qty * p.price - h.cost : null
@@ -852,7 +931,7 @@
     });
     var market = SYMBOLS.map(function (m) {
       var p = prices[m.s];
-      return { symbol: m.s, price_usd: p ? p.price : null, change_24h_pct: p ? p.changePct : null };
+      return { symbol: m.s, asset_type: isStock(m) ? 'stock' : 'crypto', price_usd: p ? p.price : null, change_24h_pct: p ? p.changePct : null };
     });
     return {
       description: 'Paper trading portfolio, all amounts in USD, started with 100000',

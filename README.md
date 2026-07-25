@@ -5,11 +5,15 @@ money against real live market prices, with an AI broker to consult with.
 
 ## What it does
 
-- Live crypto prices (10 major pairs) polled from the public Binance API
-  every 5 seconds - no API key needed, works entirely client-side.
+- Live crypto prices from the public Binance API every 5 seconds, plus
+  real stock quotes (NASDAQ/NYSE, e.g. FROG, CRM) via a Yahoo Finance proxy
+  function (`netlify/functions/quotes.js`) - no API keys needed.
+- Personal watchlist: search-add any Binance USDT pair or any US stock by
+  ticker or company name; a 'recommended today' card surfaces the top crypto
+  movers of the last 24h.
 - Virtual portfolio starting at $100,000: market buy/sell with a realistic
   0.1% fee per trade, average-cost accounting, realized + unrealized P&L.
-- Price chart (15m / 1h / 4h / 1d) and an equity curve of your performance.
+- Price chart (15m / 1h / 4h / 1d) for both asset classes.
 - Trade history log.
 - **AI broker chat** - a Claude-powered trading mentor that sees the live
   portfolio + market snapshot and gives concrete, risk-aware trade ideas.
