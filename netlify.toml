@@ -1,0 +1,20 @@
+# Netlify configuration for the Trading Room simulator.
+# Static page + one serverless function (the AI broker chat).
+# No build step - connect the repo to Netlify and deploy as-is.
+#
+# Required env var (set in Netlify site settings, never in the repo):
+#   ANTHROPIC_API_KEY - Claude API key used by the broker function
+
+[build]
+  publish = "."
+  command = ""
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    Referrer-Policy = "strict-origin-when-cross-origin"

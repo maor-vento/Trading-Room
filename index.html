@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>חדר מסחר - סימולטור בכסף וירטואלי</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0716;
+    --bg-2: #120c22;
+    --card: #171030;
+    --card-2: #1d1540;
+    --border: rgba(255,255,255,0.08);
+    --text: #f2effb;
+    --muted: #9b93b8;
+    --purple: #7c3aed;
+    --cyan: #22d3ee;
+    --green: #34d399;
+    --red: #f87171;
+    --mono: 'JetBrains Mono', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: radial-gradient(1200px 600px at 80% -10%, rgba(124,58,237,0.25), transparent 60%),
+                radial-gradient(900px 500px at 0% 110%, rgba(34,211,238,0.12), transparent 60%),
+                var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px 20px 60px;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; }
+  header.top {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 16px; margin-bottom: 24px;
+  }
+  .brand h1 {
+    font-family: 'Inter Tight', sans-serif; font-size: 26px; font-weight: 800;
+    background: linear-gradient(90deg, #a78bfa, var(--cyan));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .brand p { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(34,211,238,0.1); border: 1px solid rgba(34,211,238,0.3);
+    color: var(--cyan); font-size: 12px; font-weight: 600;
+    padding: 6px 14px; border-radius: 999px;
+  }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); animation: pulse 2s infinite; }
+  .badge.offline { color: var(--red); border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.08); }
+  .badge.offline .dot { background: var(--red); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px; margin-bottom: 22px;
+  }
+  .stat {
+    background: linear-gradient(180deg, var(--card-2), var(--card));
+    border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px;
+  }
+  .stat .label { color: var(--muted); font-size: 12px; font-weight: 500; margin-bottom: 6px; }
+  .stat .value { font-family: var(--mono); font-size: 22px; font-weight: 700; direction: ltr; text-align: right; }
+  .stat .sub { font-family: var(--mono); font-size: 12px; margin-top: 4px; direction: ltr; text-align: right; }
+  .pos { color: var(--green); } .neg { color: var(--red); }
+
+  .grid { display: grid; grid-template-columns: 340px 1fr; gap: 18px; align-items: start; }
+  @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: linear-gradient(180deg, var(--card-2), var(--card));
+    border: 1px solid var(--border); border-radius: 18px; padding: 18px; margin-bottom: 18px;
+  }
+  .card h2 {
+    font-family: 'Inter Tight', sans-serif; font-size: 16px; font-weight: 700;
+    margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between;
+  }
+
+  /* Watchlist */
+  .asset-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; border-radius: 12px; cursor: pointer;
+    border: 1px solid transparent; transition: background 0.15s, border-color 0.15s;
+  }
+  .asset-row:hover { background: rgba(255,255,255,0.04); }
+  .asset-row.active { background: rgba(124,58,237,0.15); border-color: rgba(124,58,237,0.45); }
+  .asset-row .sym { font-weight: 600; font-size: 14px; }
+  .asset-row .sym small { color: var(--muted); font-weight: 500; display: block; font-size: 11px; }
+  .asset-row .px { font-family: var(--mono); font-size: 13px; text-align: left; direction: ltr; }
+  .asset-row .px small { display: block; font-size: 11px; }
+  .flash-up { animation: flashUp 0.6s; } .flash-down { animation: flashDown 0.6s; }
+  @keyframes flashUp { 0% { background: rgba(52,211,153,0.2); } 100% { background: transparent; } }
+  @keyframes flashDown { 0% { background: rgba(248,113,113,0.2); } 100% { background: transparent; } }
+
+  /* Chart area */
+  .chart-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+  .chart-head .big { font-family: var(--mono); font-size: 28px; font-weight: 700; direction: ltr; }
+  .chart-head .chg { font-family: var(--mono); font-size: 14px; direction: ltr; }
+  .intervals { display: flex; gap: 6px; }
+  .intervals button {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    font-family: var(--mono); font-size: 12px; padding: 5px 12px; border-radius: 8px; cursor: pointer;
+  }
+  .intervals button.active { background: rgba(124,58,237,0.25); border-color: var(--purple); color: var(--text); }
+  canvas { width: 100%; display: block; }
+
+  /* Trade form */
+  .trade-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+  .trade-tabs button {
+    flex: 1; padding: 10px; border-radius: 12px; border: 1px solid var(--border);
+    background: transparent; color: var(--muted); font-family: inherit;
+    font-weight: 700; font-size: 14px; cursor: pointer;
+  }
+  .trade-tabs button.buy.active { background: rgba(52,211,153,0.15); border-color: var(--green); color: var(--green); }
+  .trade-tabs button.sell.active { background: rgba(248,113,113,0.15); border-color: var(--red); color: var(--red); }
+  .field label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .field input {
+    width: 100%; background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px;
+    color: var(--text); font-family: var(--mono); font-size: 16px; padding: 12px 14px;
+    direction: ltr; text-align: left;
+  }
+  .field input:focus { outline: none; border-color: var(--purple); }
+  .quick { display: flex; gap: 6px; margin: 10px 0 14px; }
+  .quick button {
+    flex: 1; background: transparent; border: 1px solid var(--border); color: var(--muted);
+    font-family: var(--mono); font-size: 12px; padding: 6px; border-radius: 8px; cursor: pointer;
+  }
+  .quick button:hover { border-color: var(--cyan); color: var(--cyan); }
+  .trade-summary { font-size: 12px; color: var(--muted); margin-bottom: 14px; line-height: 1.9; }
+  .trade-summary b { color: var(--text); font-family: var(--mono); direction: ltr; unicode-bidi: embed; }
+  .exec {
+    width: 100%; padding: 13px; border-radius: 12px; border: none; cursor: pointer;
+    font-family: inherit; font-weight: 700; font-size: 15px; color: #06121a;
+    transition: transform 0.1s, opacity 0.15s;
+  }
+  .exec:active { transform: scale(0.98); }
+  .exec.buy { background: linear-gradient(90deg, #34d399, #22d3ee); }
+  .exec.sell { background: linear-gradient(90deg, #f87171, #fb923c); }
+  .exec:disabled { opacity: 0.4; cursor: not-allowed; }
+  .form-msg { font-size: 12px; margin-top: 10px; min-height: 18px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-align: right; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 6px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  td.num { font-family: var(--mono); direction: ltr; text-align: right; font-size: 12px; }
+  .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 24px 0; }
+
+  .reset-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    font-family: inherit; font-size: 12px; padding: 7px 14px; border-radius: 10px; cursor: pointer;
+  }
+  .reset-btn:hover { border-color: var(--red); color: var(--red); }
+
+  footer {
+    margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 12px; line-height: 1.8;
+  }
+  .scroll-x { overflow-x: auto; }
+
+  /* Broker chat */
+  .ai-badge {
+    font-family: var(--mono); font-size: 10px; font-weight: 700; color: #06121a;
+    background: linear-gradient(90deg, #a78bfa, var(--cyan));
+    padding: 3px 8px; border-radius: 6px;
+  }
+  #chatBox {
+    height: 320px; overflow-y: auto; display: flex; flex-direction: column;
+    gap: 10px; padding: 4px 2px; margin-bottom: 12px;
+  }
+  .msg { max-width: 88%; padding: 10px 14px; border-radius: 14px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+  .msg.user { align-self: flex-start; background: rgba(124,58,237,0.25); border: 1px solid rgba(124,58,237,0.4); border-bottom-right-radius: 4px; align-self: flex-end; }
+  .msg.broker { align-self: flex-start; background: var(--bg-2); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+  .msg.broker.err { border-color: rgba(248,113,113,0.4); color: var(--red); }
+  .msg.typing { color: var(--muted); }
+  .msg.typing .dots::after { content: '...'; animation: dots 1.2s steps(4) infinite; }
+  @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+  .chat-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .chat-chips button {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    font-family: inherit; font-size: 11px; padding: 6px 10px; border-radius: 999px; cursor: pointer;
+  }
+  .chat-chips button:hover { border-color: var(--cyan); color: var(--cyan); }
+  .chat-input-row { display: flex; gap: 8px; }
+  .chat-input-row input {
+    flex: 1; background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px;
+    color: var(--text); font-family: inherit; font-size: 13px; padding: 11px 14px;
+  }
+  .chat-input-row input:focus { outline: none; border-color: var(--purple); }
+  .chat-input-row button {
+    background: linear-gradient(90deg, #7c3aed, #22d3ee); border: none; border-radius: 12px;
+    color: #fff; font-family: inherit; font-weight: 700; font-size: 13px;
+    padding: 0 18px; cursor: pointer;
+  }
+  .chat-input-row button:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <h1>חדר מסחר</h1>
+      <p>סימולטור מסחר בכסף וירטואלי - מחירי שוק אמיתיים, אפס סיכון</p>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <span class="badge" id="liveBadge"><span class="dot"></span><span id="liveText">מתחבר לשוק...</span></span>
+      <button class="reset-btn" id="resetBtn">איפוס תיק</button>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="stat">
+      <div class="label">שווי תיק כולל</div>
+      <div class="value" id="stEquity">-</div>
+      <div class="sub" id="stEquityChg"></div>
+    </div>
+    <div class="stat">
+      <div class="label">מזומן פנוי</div>
+      <div class="value" id="stCash">-</div>
+    </div>
+    <div class="stat">
+      <div class="label">רווח / הפסד פתוח</div>
+      <div class="value" id="stUnreal">-</div>
+    </div>
+    <div class="stat">
+      <div class="label">רווח / הפסד ממומש</div>
+      <div class="value" id="stRealized">-</div>
+    </div>
+    <div class="stat">
+      <div class="label">עסקאות</div>
+      <div class="value" id="stTrades">0</div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <div>
+      <div class="card">
+        <h2>רשימת מעקב</h2>
+        <div id="watchlist"></div>
+      </div>
+
+      <div class="card">
+        <h2 id="tradeTitle">מסחר</h2>
+        <div class="trade-tabs">
+          <button class="buy active" id="tabBuy">קניה</button>
+          <button class="sell" id="tabSell">מכירה</button>
+        </div>
+        <div class="field" id="buyField">
+          <label>סכום בקניה (USD)</label>
+          <input type="number" id="buyAmount" placeholder="1000" min="0" step="any">
+        </div>
+        <div class="field" id="sellField" style="display:none;">
+          <label>כמות למכירה (<span id="sellUnit">-</span>)</label>
+          <input type="number" id="sellQty" placeholder="0.01" min="0" step="any">
+        </div>
+        <div class="quick" id="quickBtns">
+          <button data-pct="10">10%</button>
+          <button data-pct="25">25%</button>
+          <button data-pct="50">50%</button>
+          <button data-pct="100">100%</button>
+        </div>
+        <div class="trade-summary" id="tradeSummary"></div>
+        <button class="exec buy" id="execBtn">קניה</button>
+        <div class="form-msg" id="formMsg"></div>
+      </div>
+
+      <div class="card">
+        <h2>הברוקר שלי <span class="ai-badge">AI</span></h2>
+        <div id="chatBox"></div>
+        <div class="chat-chips" id="chatChips">
+          <button>מה כדאי לסחור עכשיו?</button>
+          <button>נתח את התיק שלי</button>
+          <button>בנה לי תוכנית מסחר</button>
+          <button>איך אני מנהל סיכונים נכון?</button>
+        </div>
+        <div class="chat-input-row">
+          <input type="text" id="chatInput" placeholder="שאל את הברוקר..." maxlength="2000">
+          <button id="chatSend">שלח</button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="chart-head">
+          <div>
+            <div style="color:var(--muted); font-size:13px; margin-bottom:4px;" id="chartSym">-</div>
+            <span class="big" id="chartPrice">-</span>
+            <span class="chg" id="chartChg"></span>
+          </div>
+          <div class="intervals" id="intervals">
+            <button data-iv="15m">15ד</button>
+            <button data-iv="1h" class="active">1ש</button>
+            <button data-iv="4h">4ש</button>
+            <button data-iv="1d">1י</button>
+          </div>
+        </div>
+        <canvas id="priceChart" height="260"></canvas>
+      </div>
+
+      <div class="card">
+        <h2>התיק שלי</h2>
+        <div class="scroll-x">
+          <table>
+            <thead><tr>
+              <th>נכס</th><th>כמות</th><th>מחיר ממוצע</th><th>מחיר נוכחי</th><th>שווי</th><th>רווח/הפסד</th>
+            </tr></thead>
+            <tbody id="holdingsBody"></tbody>
+          </table>
+        </div>
+        <div class="empty" id="holdingsEmpty">אין פוזיציות פתוחות - קנה נכס ראשון כדי להתחיל</div>
+      </div>
+
+      <div class="card">
+        <h2>עקומת הון</h2>
+        <canvas id="equityChart" height="160"></canvas>
+      </div>
+
+      <div class="card">
+        <h2>היסטוריית עסקאות</h2>
+        <div class="scroll-x">
+          <table>
+            <thead><tr>
+              <th>זמן</th><th>פעולה</th><th>נכס</th><th>כמות</th><th>מחיר</th><th>עמלה</th><th>סה"כ</th>
+            </tr></thead>
+            <tbody id="tradesBody"></tbody>
+          </table>
+        </div>
+        <div class="empty" id="tradesEmpty">עדיין אין עסקאות</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <strong>הערה חשובה:</strong> זהו סימולטור לצרכי אימון ולמידה בלבד - כל הכסף כאן וירטואלי ואין בו ייעוץ השקעות.
+    מחירי השוק אמיתיים (Binance) אך הביצועים בסימולציה אינם מבטיחים תוצאות דומות בכסף אמיתי.
+    מסחר אמיתי בקריפטו ובשוק ההון כרוך בסיכון ממשי לאובדן הקרן - רוב הסוחרים העצמאיים מפסידים לאורך זמן.
+    מומלץ לסחור כאן לפחות כמה חודשים, לתעד ביצועים, ולהיכנס לכסף אמיתי רק בסכום שאתה מוכן להפסיד.
+    עמלת סימולציה: 0.1% לכל עסקה (בדומה לעמלות ספוט מקובלות).
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var SYMBOLS = [
+    { s: 'BTCUSDT', base: 'BTC', name: 'ביטקוין' },
+    { s: 'ETHUSDT', base: 'ETH', name: 'את\'ריום' },
+    { s: 'SOLUSDT', base: 'SOL', name: 'סולאנה' },
+    { s: 'BNBUSDT', base: 'BNB', name: 'ביננס קוין' },
+    { s: 'XRPUSDT', base: 'XRP', name: 'ריפל' },
+    { s: 'DOGEUSDT', base: 'DOGE', name: 'דוג\'קוין' },
+    { s: 'ADAUSDT', base: 'ADA', name: 'קרדאנו' },
+    { s: 'AVAXUSDT', base: 'AVAX', name: 'אבלנצ\'' },
+    { s: 'LINKUSDT', base: 'LINK', name: 'צ\'יינלינק' },
+    { s: 'DOTUSDT', base: 'DOT', name: 'פולקדוט' }
+  ];
+  var FEE = 0.001;               // 0.1% per trade
+  var START_CASH = 100000;       // virtual USD
+  var STORE_KEY = 'paper-trading-v1';
+  var POLL_MS = 5000;
+  var API = 'https://api.binance.com/api/v3';
+
+  var state = load() || freshState();
+  var prices = {};               // symbol -> { price, changePct }
+  var selected = SYMBOLS[0].s;
+  var side = 'buy';
+  var interval = '1h';
+  var klines = [];
+  var online = false;
+
+  function freshState() {
+    return { cash: START_CASH, holdings: {}, trades: [], realized: 0, equityHistory: [], chat: [] };
+  }
+  function load() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) { return null; }
+  }
+  function save() { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
+
+  // ---------- formatting ----------
+  function fmtUsd(v, digits) {
+    if (v == null || isNaN(v)) return '-';
+    return '$' + v.toLocaleString('en-US', { minimumFractionDigits: digits == null ? 2 : digits, maximumFractionDigits: digits == null ? 2 : digits });
+  }
+  function fmtPx(v) {
+    if (v == null || isNaN(v)) return '-';
+    var d = v >= 1000 ? 2 : v >= 1 ? 2 : v >= 0.01 ? 4 : 6;
+    return '$' + v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  }
+  function fmtQty(v) {
+    if (v == null || isNaN(v)) return '-';
+    return v.toLocaleString('en-US', { maximumFractionDigits: 8 });
+  }
+  function fmtPct(v) {
+    if (v == null || isNaN(v)) return '';
+    return (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+  }
+  function signed(v) {
+    return (v >= 0 ? '+' : '-') + fmtUsd(Math.abs(v)).slice(0);
+  }
+  function meta(sym) {
+    for (var i = 0; i < SYMBOLS.length; i++) if (SYMBOLS[i].s === sym) return SYMBOLS[i];
+    return { s: sym, base: sym, name: sym };
+  }
+
+  // ---------- market data ----------
+  function fetchTickers() {
+    var q = encodeURIComponent(JSON.stringify(SYMBOLS.map(function (x) { return x.s; })));
+    return fetch(API + '/ticker/24hr?symbols=' + q)
+      .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+      .then(function (arr) {
+        arr.forEach(function (t) {
+          prices[t.symbol] = { price: parseFloat(t.lastPrice), changePct: parseFloat(t.priceChangePercent) };
+        });
+        setOnline(true);
+      })
+      .catch(function () { setOnline(false); });
+  }
+  function fetchKlines() {
+    return fetch(API + '/klines?symbol=' + selected + '&interval=' + interval + '&limit=120')
+      .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+      .then(function (arr) {
+        klines = arr.map(function (k) { return { t: k[0], c: parseFloat(k[4]) }; });
+        drawPriceChart();
+      })
+      .catch(function () { /* keep last chart */ });
+  }
+  function setOnline(v) {
+    online = v;
+    var badge = document.getElementById('liveBadge');
+    badge.classList.toggle('offline', !v);
+    document.getElementById('liveText').textContent = v ? 'שוק חי - Binance' : 'אין חיבור לשוק - מנסה שוב...';
+  }
+
+  // ---------- portfolio math ----------
+  function equity() {
+    var eq = state.cash;
+    Object.keys(state.holdings).forEach(function (sym) {
+      var p = prices[sym];
+      if (p) eq += state.holdings[sym].qty * p.price;
+    });
+    return eq;
+  }
+  function unrealized() {
+    var u = 0;
+    Object.keys(state.holdings).forEach(function (sym) {
+      var h = state.holdings[sym], p = prices[sym];
+      if (p) u += h.qty * p.price - h.cost;
+    });
+    return u;
+  }
+  function snapshotEquity(force) {
+    if (!online && !force) return;
+    var now = Date.now();
+    var hist = state.equityHistory;
+    var last = hist[hist.length - 1];
+    if (!force && last && now - last.t < 60000) return;
+    hist.push({ t: now, v: equity() });
+    if (hist.length > 800) hist.splice(0, hist.length - 800);
+    save();
+  }
+
+  // ---------- trading ----------
+  function doBuy(usd) {
+    var p = prices[selected];
+    if (!p) return err('אין מחיר זמין כרגע');
+    if (!(usd > 0)) return err('הזן סכום חיובי');
+    if (usd > state.cash) return err('אין מספיק מזומן - זמין ' + fmtUsd(state.cash));
+    if (usd < 10) return err('מינימום עסקה: $10');
+    var fee = usd * FEE;
+    var qty = (usd - fee) / p.price;
+    var h = state.holdings[selected] || { qty: 0, cost: 0 };
+    h.qty += qty; h.cost += usd;
+    state.holdings[selected] = h;
+    state.cash -= usd;
+    logTrade('buy', qty, p.price, fee, usd);
+    ok('נקנו ' + fmtQty(qty) + ' ' + meta(selected).base + ' ב-' + fmtUsd(usd));
+  }
+  function doSell(qty) {
+    var p = prices[selected];
+    if (!p) return err('אין מחיר זמין כרגע');
+    var h = state.holdings[selected];
+    if (!h || h.qty <= 0) return err('אין לך ' + meta(selected).base + ' למכור');
+    if (!(qty > 0)) return err('הזן כמות חיובית');
+    if (qty > h.qty * 1.0000001) return err('כמות גדולה מהאחזקה - יש לך ' + fmtQty(h.qty));
+    qty = Math.min(qty, h.qty);
+    var proceeds = qty * p.price;
+    var fee = proceeds * FEE;
+    var avg = h.cost / h.qty;
+    var costOut = avg * qty;
+    state.realized += (proceeds - fee) - costOut;
+    h.qty -= qty; h.cost -= costOut;
+    if (h.qty <= 1e-12) delete state.holdings[selected];
+    state.cash += proceeds - fee;
+    logTrade('sell', qty, p.price, fee, proceeds - fee);
+    ok('נמכרו ' + fmtQty(qty) + ' ' + meta(selected).base + ' תמורת ' + fmtUsd(proceeds - fee));
+  }
+  function logTrade(sideStr, qty, price, fee, total) {
+    state.trades.unshift({ t: Date.now(), side: sideStr, sym: selected, qty: qty, price: price, fee: fee, total: total });
+    if (state.trades.length > 300) state.trades.length = 300;
+    snapshotEquity(true);
+    save();
+    renderAll();
+  }
+  function err(msg) {
+    var el = document.getElementById('formMsg');
+    el.textContent = msg; el.className = 'form-msg neg';
+  }
+  function ok(msg) {
+    var el = document.getElementById('formMsg');
+    el.textContent = msg; el.className = 'form-msg pos';
+    document.getElementById('buyAmount').value = '';
+    document.getElementById('sellQty').value = '';
+    updateTradeSummary();
+  }
+
+  // ---------- rendering ----------
+  var lastRenderedPx = {};
+  function renderWatchlist() {
+    var el = document.getElementById('watchlist');
+    if (!el.childElementCount) {
+      SYMBOLS.forEach(function (m) {
+        var row = document.createElement('div');
+        row.className = 'asset-row'; row.id = 'row-' + m.s;
+        row.innerHTML = '<div class="sym">' + m.base + '<small>' + m.name + '</small></div>' +
+                        '<div class="px"><span class="p">-</span><small class="c"></small></div>';
+        row.addEventListener('click', function () { selectSymbol(m.s); });
+        el.appendChild(row);
+      });
+    }
+    SYMBOLS.forEach(function (m) {
+      var row = document.getElementById('row-' + m.s);
+      row.classList.toggle('active', m.s === selected);
+      var p = prices[m.s];
+      if (!p) return;
+      var pEl = row.querySelector('.p'), cEl = row.querySelector('.c');
+      var prev = lastRenderedPx[m.s];
+      pEl.textContent = fmtPx(p.price);
+      cEl.textContent = fmtPct(p.changePct);
+      cEl.className = 'c ' + (p.changePct >= 0 ? 'pos' : 'neg');
+      if (prev != null && prev !== p.price) {
+        row.classList.remove('flash-up', 'flash-down');
+        void row.offsetWidth;
+        row.classList.add(p.price > prev ? 'flash-up' : 'flash-down');
+      }
+      lastRenderedPx[m.s] = p.price;
+    });
+  }
+  function renderStats() {
+    var eq = equity(), u = unrealized();
+    var pnl = eq - START_CASH;
+    var pnlPct = (pnl / START_CASH) * 100;
+    document.getElementById('stEquity').textContent = fmtUsd(eq);
+    var chgEl = document.getElementById('stEquityChg');
+    chgEl.textContent = signed(pnl) + ' (' + fmtPct(pnlPct) + ')';
+    chgEl.className = 'sub ' + (pnl >= 0 ? 'pos' : 'neg');
+    document.getElementById('stCash').textContent = fmtUsd(state.cash);
+    var uEl = document.getElementById('stUnreal');
+    uEl.textContent = signed(u); uEl.className = 'value ' + (u >= 0 ? 'pos' : 'neg');
+    var rEl = document.getElementById('stRealized');
+    rEl.textContent = signed(state.realized); rEl.className = 'value ' + (state.realized >= 0 ? 'pos' : 'neg');
+    document.getElementById('stTrades').textContent = state.trades.length;
+  }
+  function renderHoldings() {
+    var body = document.getElementById('holdingsBody');
+    var keys = Object.keys(state.holdings);
+    document.getElementById('holdingsEmpty').style.display = keys.length ? 'none' : 'block';
+    body.innerHTML = keys.map(function (sym) {
+      var h = state.holdings[sym], p = prices[sym], m = meta(sym);
+      var avg = h.cost / h.qty;
+      var val = p ? h.qty * p.price : null;
+      var pl = val != null ? val - h.cost : null;
+      var plPct = pl != null ? (pl / h.cost) * 100 : null;
+      return '<tr>' +
+        '<td><b>' + m.base + '</b> <span style="color:var(--muted);font-size:11px;">' + m.name + '</span></td>' +
+        '<td class="num">' + fmtQty(h.qty) + '</td>' +
+        '<td class="num">' + fmtPx(avg) + '</td>' +
+        '<td class="num">' + (p ? fmtPx(p.price) : '-') + '</td>' +
+        '<td class="num">' + (val != null ? fmtUsd(val) : '-') + '</td>' +
+        '<td class="num ' + (pl >= 0 ? 'pos' : 'neg') + '">' + (pl != null ? signed(pl) + ' (' + fmtPct(plPct) + ')' : '-') + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+  function renderTrades() {
+    var body = document.getElementById('tradesBody');
+    document.getElementById('tradesEmpty').style.display = state.trades.length ? 'none' : 'block';
+    body.innerHTML = state.trades.slice(0, 60).map(function (tr) {
+      var d = new Date(tr.t);
+      var time = d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' }) + ' ' +
+                 d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+      return '<tr>' +
+        '<td class="num" style="font-size:11px;">' + time + '</td>' +
+        '<td class="' + (tr.side === 'buy' ? 'pos' : 'neg') + '">' + (tr.side === 'buy' ? 'קניה' : 'מכירה') + '</td>' +
+        '<td>' + meta(tr.sym).base + '</td>' +
+        '<td class="num">' + fmtQty(tr.qty) + '</td>' +
+        '<td class="num">' + fmtPx(tr.price) + '</td>' +
+        '<td class="num">' + fmtUsd(tr.fee) + '</td>' +
+        '<td class="num">' + fmtUsd(tr.total) + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+  function renderChartHead() {
+    var m = meta(selected), p = prices[selected];
+    document.getElementById('chartSym').textContent = m.name + ' - ' + m.base + '/USDT';
+    document.getElementById('tradeTitle').textContent = 'מסחר - ' + m.base;
+    document.getElementById('sellUnit').textContent = m.base;
+    if (p) {
+      document.getElementById('chartPrice').textContent = fmtPx(p.price);
+      var c = document.getElementById('chartChg');
+      c.textContent = fmtPct(p.changePct) + ' (24ש)';
+      c.className = 'chg ' + (p.changePct >= 0 ? 'pos' : 'neg');
+    }
+  }
+  function renderAll() {
+    renderWatchlist(); renderStats(); renderHoldings(); renderTrades(); renderChartHead();
+    drawEquityChart(); updateTradeSummary();
+  }
+
+  // ---------- charts (canvas) ----------
+  function setupCanvas(canvas) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.clientWidth, h = parseInt(canvas.getAttribute('height'), 10);
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    canvas.style.height = h + 'px';
+    var ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx: ctx, w: w, h: h };
+  }
+  function drawLineChart(canvas, points, colorA, colorB) {
+    if (!points.length) return;
+    var c = setupCanvas(canvas), ctx = c.ctx, w = c.w, h = c.h;
+    var pad = 6;
+    var min = Infinity, max = -Infinity;
+    points.forEach(function (v) { if (v < min) min = v; if (v > max) max = v; });
+    if (max === min) { max += 1; min -= 1; }
+    function x(i) { return pad + (i / (points.length - 1)) * (w - pad * 2); }
+    function y(v) { return pad + (1 - (v - min) / (max - min)) * (h - pad * 2); }
+    ctx.clearRect(0, 0, w, h);
+    // fill
+    var grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, colorA + '55'); grad.addColorStop(1, colorA + '00');
+    ctx.beginPath();
+    points.forEach(function (v, i) { i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v)); });
+    ctx.lineTo(x(points.length - 1), h); ctx.lineTo(x(0), h); ctx.closePath();
+    ctx.fillStyle = grad; ctx.fill();
+    // line
+    var lg = ctx.createLinearGradient(0, 0, w, 0);
+    lg.addColorStop(0, colorA); lg.addColorStop(1, colorB);
+    ctx.beginPath();
+    points.forEach(function (v, i) { i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v)); });
+    ctx.strokeStyle = lg; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+    // last point
+    ctx.beginPath();
+    ctx.arc(x(points.length - 1), y(points[points.length - 1]), 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = colorB; ctx.fill();
+  }
+  function drawPriceChart() {
+    var pts = klines.map(function (k) { return k.c; });
+    var up = pts.length > 1 && pts[pts.length - 1] >= pts[0];
+    drawLineChart(document.getElementById('priceChart'), pts, up ? '#34d399' : '#f87171', up ? '#22d3ee' : '#fb923c');
+  }
+  function drawEquityChart() {
+    var pts = state.equityHistory.map(function (e) { return e.v; });
+    if (pts.length < 2) pts = [START_CASH, equity() || START_CASH];
+    drawLineChart(document.getElementById('equityChart'), pts, '#7c3aed', '#22d3ee');
+  }
+
+  // ---------- trade form ----------
+  function updateTradeSummary() {
+    var p = prices[selected], m = meta(selected);
+    var el = document.getElementById('tradeSummary');
+    var h = state.holdings[selected];
+    if (!p) { el.innerHTML = 'ממתין למחיר שוק...'; return; }
+    if (side === 'buy') {
+      var usd = parseFloat(document.getElementById('buyAmount').value) || 0;
+      var fee = usd * FEE, qty = usd > 0 ? (usd - fee) / p.price : 0;
+      el.innerHTML = 'מחיר שוק: <b>' + fmtPx(p.price) + '</b><br>' +
+        'תקבל בערך: <b>' + fmtQty(qty) + ' ' + m.base + '</b> (עמלה <b>' + fmtUsd(fee) + '</b>)<br>' +
+        'מזומן זמין: <b>' + fmtUsd(state.cash) + '</b>';
+    } else {
+      var q = parseFloat(document.getElementById('sellQty').value) || 0;
+      var proceeds = q * p.price, sellFee = proceeds * FEE;
+      el.innerHTML = 'מחיר שוק: <b>' + fmtPx(p.price) + '</b><br>' +
+        'תקבל בערך: <b>' + fmtUsd(proceeds - sellFee) + '</b> (עמלה <b>' + fmtUsd(sellFee) + '</b>)<br>' +
+        'ברשותך: <b>' + (h ? fmtQty(h.qty) : '0') + ' ' + m.base + '</b>';
+    }
+  }
+  function setSide(s) {
+    side = s;
+    document.getElementById('tabBuy').classList.toggle('active', s === 'buy');
+    document.getElementById('tabSell').classList.toggle('active', s === 'sell');
+    document.getElementById('buyField').style.display = s === 'buy' ? 'block' : 'none';
+    document.getElementById('sellField').style.display = s === 'sell' ? 'block' : 'none';
+    var btn = document.getElementById('execBtn');
+    btn.textContent = s === 'buy' ? 'קניה' : 'מכירה';
+    btn.className = 'exec ' + s;
+    document.getElementById('formMsg').textContent = '';
+    updateTradeSummary();
+  }
+  function selectSymbol(sym) {
+    selected = sym;
+    document.getElementById('formMsg').textContent = '';
+    renderWatchlist(); renderChartHead(); updateTradeSummary();
+    fetchKlines();
+  }
+
+  // ---------- broker chat ----------
+  var BROKER_URL = '/.netlify/functions/broker';
+  if (!state.chat) state.chat = [];
+  var chatBusy = false;
+
+  function chatContext() {
+    var holdings = Object.keys(state.holdings).map(function (sym) {
+      var h = state.holdings[sym], p = prices[sym];
+      return {
+        symbol: sym, qty: h.qty,
+        avg_cost_usd: h.qty ? h.cost / h.qty : 0,
+        current_price_usd: p ? p.price : null,
+        unrealized_pnl_usd: p ? h.qty * p.price - h.cost : null
+      };
+    });
+    var market = SYMBOLS.map(function (m) {
+      var p = prices[m.s];
+      return { symbol: m.s, price_usd: p ? p.price : null, change_24h_pct: p ? p.changePct : null };
+    });
+    return {
+      description: 'Paper trading portfolio, all amounts in USD, started with 100000',
+      cash_usd: state.cash,
+      total_equity_usd: equity(),
+      total_pnl_usd: equity() - START_CASH,
+      unrealized_pnl_usd: unrealized(),
+      realized_pnl_usd: state.realized,
+      trades_count: state.trades.length,
+      holdings: holdings,
+      market_24h: market,
+      recent_trades: state.trades.slice(0, 8).map(function (t) {
+        return { side: t.side, symbol: t.sym, qty: t.qty, price_usd: t.price, time: new Date(t.t).toISOString() };
+      })
+    };
+  }
+
+  function renderChat() {
+    var box = document.getElementById('chatBox');
+    box.innerHTML = '';
+    if (!state.chat.length) {
+      var hello = document.createElement('div');
+      hello.className = 'msg broker';
+      hello.textContent = 'היי, אני הברוקר שלך. אני רואה את התיק ואת מחירי השוק בזמן אמת - שאל אותי מה כדאי לסחור, בקש ניתוח של התיק, או נבנה יחד תוכנית מסחר.';
+      box.appendChild(hello);
+    }
+    state.chat.forEach(function (m) {
+      var el = document.createElement('div');
+      el.className = 'msg ' + (m.role === 'user' ? 'user' : 'broker') + (m.err ? ' err' : '');
+      el.textContent = m.content;
+      box.appendChild(el);
+    });
+    if (chatBusy) {
+      var t = document.createElement('div');
+      t.className = 'msg broker typing';
+      t.innerHTML = 'הברוקר חושב<span class="dots"></span>';
+      box.appendChild(t);
+    }
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function sendChat(text) {
+    text = (text || '').trim();
+    if (!text || chatBusy) return;
+    state.chat.push({ role: 'user', content: text });
+    if (state.chat.length > 40) state.chat.splice(0, state.chat.length - 40);
+    save();
+    chatBusy = true;
+    document.getElementById('chatSend').disabled = true;
+    document.getElementById('chatInput').value = '';
+    renderChat();
+
+    var payload = {
+      messages: state.chat.filter(function (m) { return !m.err; })
+        .map(function (m) { return { role: m.role, content: m.content }; }),
+      context: chatContext()
+    };
+    fetch(BROKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(function (r) {
+        return r.json().then(function (data) { return { ok: r.ok, data: data }; });
+      })
+      .then(function (res) {
+        if (res.ok && res.data.reply) {
+          state.chat.push({ role: 'assistant', content: res.data.reply });
+        } else {
+          state.chat.push({ role: 'assistant', err: true, content: res.data.error || 'שגיאה זמנית - נסה שוב' });
+        }
+      })
+      .catch(function () {
+        state.chat.push({
+          role: 'assistant', err: true,
+          content: 'הברוקר לא זמין כאן - הוא עובד רק בגרסה המפורסמת ב-Netlify (נדרש מפתח API בהגדרות האתר).'
+        });
+      })
+      .then(function () {
+        chatBusy = false;
+        document.getElementById('chatSend').disabled = false;
+        save();
+        renderChat();
+      });
+  }
+
+  document.getElementById('chatSend').addEventListener('click', function () {
+    sendChat(document.getElementById('chatInput').value);
+  });
+  document.getElementById('chatInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') sendChat(this.value);
+  });
+  document.getElementById('chatChips').addEventListener('click', function (e) {
+    if (e.target.tagName === 'BUTTON') sendChat(e.target.textContent);
+  });
+
+  // ---------- events ----------
+  document.getElementById('tabBuy').addEventListener('click', function () { setSide('buy'); });
+  document.getElementById('tabSell').addEventListener('click', function () { setSide('sell'); });
+  document.getElementById('execBtn').addEventListener('click', function () {
+    if (side === 'buy') doBuy(parseFloat(document.getElementById('buyAmount').value));
+    else doSell(parseFloat(document.getElementById('sellQty').value));
+  });
+  document.getElementById('buyAmount').addEventListener('input', updateTradeSummary);
+  document.getElementById('sellQty').addEventListener('input', updateTradeSummary);
+  document.getElementById('quickBtns').addEventListener('click', function (e) {
+    var pct = e.target.getAttribute('data-pct');
+    if (!pct) return;
+    pct = parseFloat(pct) / 100;
+    if (side === 'buy') {
+      document.getElementById('buyAmount').value = Math.floor(state.cash * pct * 100) / 100;
+    } else {
+      var h = state.holdings[selected];
+      document.getElementById('sellQty').value = h ? h.qty * pct : 0;
+    }
+    updateTradeSummary();
+  });
+  document.getElementById('intervals').addEventListener('click', function (e) {
+    var iv = e.target.getAttribute('data-iv');
+    if (!iv) return;
+    interval = iv;
+    Array.prototype.forEach.call(this.querySelectorAll('button'), function (b) {
+      b.classList.toggle('active', b.getAttribute('data-iv') === iv);
+    });
+    fetchKlines();
+  });
+  document.getElementById('resetBtn').addEventListener('click', function () {
+    if (confirm('לאפס את התיק? כל העסקאות וההיסטוריה יימחקו ותחזור ל-' + fmtUsd(START_CASH))) {
+      state = freshState(); save(); lastRenderedPx = {};
+      document.getElementById('formMsg').textContent = '';
+      renderAll(); renderChat();
+    }
+  });
+  window.addEventListener('resize', function () { drawPriceChart(); drawEquityChart(); });
+
+  // ---------- boot ----------
+  renderAll();
+  renderChat();
+  fetchTickers().then(function () { renderAll(); snapshotEquity(false); });
+  fetchKlines();
+  setInterval(function () {
+    fetchTickers().then(function () {
+      renderWatchlist(); renderStats(); renderHoldings(); renderChartHead();
+      updateTradeSummary(); snapshotEquity(false); drawEquityChart();
+    });
+  }, POLL_MS);
+  setInterval(fetchKlines, 60000);
+})();
+</script>
+</body>
+</html>
