@@ -350,7 +350,7 @@
         <div class="scroll-x">
           <table>
             <thead><tr>
-              <th>זמן</th><th>פעולה</th><th>נכס</th><th>כמות</th><th>מחיר</th><th>עמלה</th><th>סה"כ</th>
+              <th>זמן</th><th>פעולה</th><th>נכס</th><th>כמות</th><th>מחיר</th><th>עמלה</th><th>סה"כ</th><th>שווי היום</th>
             </tr></thead>
             <tbody id="tradesBody"></tbody>
           </table>
@@ -446,6 +446,13 @@
   function fetchTickers() {
     var cryptoSyms = [], stockSyms = [];
     SYMBOLS.forEach(function (m) { (isStock(m) ? stockSyms : cryptoSyms).push(m.s); });
+    // Also price the symbols of recent trades (for the "worth today" column),
+    // even when they were removed from the watchlist. Crypto pairs end with
+    // USDT; anything else is a stock.
+    state.trades.slice(0, 60).forEach(function (tr) {
+      var list = /USDT$/.test(tr.sym) ? cryptoSyms : stockSyms;
+      if (list.indexOf(tr.sym) === -1 && list.length < 20) list.push(tr.sym);
+    });
 
     var jobs = [];
     if (cryptoSyms.length) {
@@ -827,8 +834,24 @@
         '<td class="num">' + fmtPx(tr.price) + '</td>' +
         '<td class="num">' + fmtUsd(tr.fee) + '</td>' +
         '<td class="num">' + fmtUsd(tr.total) + '</td>' +
+        todayValueCell(tr) +
         '</tr>';
     }).join('');
+  }
+  // What the traded quantity is worth at the current price, vs the trade's
+  // total. For a buy: your unrealized move on that lot. For a sale: what the
+  // sold quantity would be worth had you held it.
+  function todayValueCell(tr) {
+    var p = prices[tr.sym];
+    if (!p || !tr.total) return '<td class="num">-</td>';
+    var nowVal = tr.qty * p.price;
+    var diffPct = (nowVal / tr.total - 1) * 100;
+    var cls = diffPct >= 0 ? 'pos' : 'neg';
+    var tip = tr.side === 'buy'
+      ? 'לעומת מה ששילמת בעסקה'
+      : 'מה שהכמות שמכרת שווה היום, לעומת מה שקיבלת';
+    return '<td class="num" title="' + tip + '">' + fmtUsd(nowVal) +
+      ' <span class="' + cls + '" style="font-size:11px;">' + fmtPct(diffPct) + '</span></td>';
   }
   function renderChartHead() {
     var m = meta(selected), p = prices[selected];
@@ -1032,7 +1055,7 @@
   setInterval(fetchRecommendations, 1800000);
   setInterval(function () {
     fetchTickers().then(function () {
-      renderWatchlist(); renderStats(); renderHoldings(); renderChartHead();
+      renderWatchlist(); renderStats(); renderHoldings(); renderTrades(); renderChartHead();
       updateTradeSummary(); snapshotEquity(false);
     });
   }, POLL_MS);
