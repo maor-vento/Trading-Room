@@ -1,9 +1,9 @@
 {
-  "name": "solutech-trading-functions",
+  "name": "trading-room-functions",
   "version": "1.0.0",
   "private": true,
-  "description": "Netlify Functions for the trading simulator (AI broker chat via the Claude API).",
+  "description": "Netlify Functions for the Trading Room simulator (AI broker chat via the Claude API).",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.116.0"
+    "@anthropic-ai/sdk": "^0.115.0"
   }
 }
