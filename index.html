@@ -836,8 +836,15 @@
 
   // ---------- charts (canvas) ----------
   function setupCanvas(canvas) {
-    var dpr = window.devicePixelRatio || 1;
-    var w = canvas.clientWidth, h = parseInt(canvas.getAttribute('height'), 10);
+    // Cap at 2x: enough sharpness, and keeps the backing store small on 3x phones.
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Remember the design height ONCE. Writing canvas.height below also
+    // rewrites the height attribute, so re-reading the attribute every draw
+    // would double the chart each time on retina screens until the browser
+    // blanks the canvas.
+    var h = parseInt(canvas.dataset.designH || canvas.getAttribute('height'), 10);
+    canvas.dataset.designH = h;
+    var w = canvas.clientWidth;
     canvas.width = w * dpr; canvas.height = h * dpr;
     canvas.style.height = h + 'px';
     var ctx = canvas.getContext('2d');
