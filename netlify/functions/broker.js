@@ -5,11 +5,14 @@
 // broker's reply and returns it. The API key stays server-side - the browser
 // never sees it.
 //
+// Zero npm dependencies on purpose: calls the Anthropic Messages API directly
+// with Node's built-in fetch, so the Netlify build has no install step to fail.
+//
 // Required env var (set in Netlify, never in the repo):
 //   ANTHROPIC_API_KEY - Claude API key
 
-const Anthropic = require('@anthropic-ai/sdk');
-
+const API_URL = 'https://api.anthropic.com/v1/messages';
+const MODEL = 'claude-opus-5';
 const MAX_MESSAGES = 24;      // history cap sent to the model
 const MAX_MSG_CHARS = 4000;   // per-message cap
 const MAX_TOKENS = 2048;
@@ -75,38 +78,52 @@ exports.handler = async (event) => {
     ],
   };
 
-  const client = new Anthropic();
-
+  let response, data;
   try {
-    const response = await client.messages.create({
-      model: 'claude-opus-5',
-      max_tokens: MAX_TOKENS,
-      output_config: { effort: 'medium' },
-      system: [
-        { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
-      ],
-      messages,
+    response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: MAX_TOKENS,
+        output_config: { effort: 'medium' },
+        system: [
+          { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+        ],
+        messages,
+      }),
     });
-
-    if (response.stop_reason === 'refusal') {
-      return json(200, { reply: 'לא אוכל לענות על השאלה הזו. נסה לנסח אחרת או לשאול על התיק והשוק.' });
-    }
-
-    let reply = '';
-    for (const block of response.content) {
-      if (block.type === 'text') reply += block.text;
-    }
-    return json(200, { reply: reply.trim() });
+    data = await response.json();
   } catch (err) {
-    if (err instanceof Anthropic.RateLimitError) {
-      return json(429, { error: 'הברוקר עמוס כרגע - נסה שוב בעוד רגע' });
-    }
-    if (err instanceof Anthropic.AuthenticationError) {
-      return json(500, { error: 'מפתח ה-API אינו תקין - בדוק את ANTHROPIC_API_KEY בהגדרות Netlify' });
-    }
-    console.error('broker error:', err);
+    console.error('broker network error:', err);
     return json(500, { error: 'שגיאה זמנית אצל הברוקר - נסה שוב' });
   }
+
+  if (!response.ok) {
+    const type = data && data.error && data.error.type;
+    if (response.status === 401 || type === 'authentication_error') {
+      return json(500, { error: 'מפתח ה-API אינו תקין - בדוק את ANTHROPIC_API_KEY בהגדרות Netlify' });
+    }
+    if (response.status === 429 || type === 'rate_limit_error' || type === 'overloaded_error') {
+      return json(429, { error: 'הברוקר עמוס כרגע - נסה שוב בעוד רגע' });
+    }
+    console.error('broker api error:', response.status, JSON.stringify(data).slice(0, 500));
+    return json(500, { error: 'שגיאה זמנית אצל הברוקר - נסה שוב' });
+  }
+
+  if (data.stop_reason === 'refusal') {
+    return json(200, { reply: 'לא אוכל לענות על השאלה הזו. נסה לנסח אחרת או לשאול על התיק והשוק.' });
+  }
+
+  let reply = '';
+  for (const block of data.content || []) {
+    if (block.type === 'text') reply += block.text;
+  }
+  return json(200, { reply: reply.trim() });
 };
 
 function json(statusCode, obj) {

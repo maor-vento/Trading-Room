@@ -41,8 +41,8 @@ with `ANTHROPIC_API_KEY` in the environment if you want it working.)
 ANTHROPIC_API_KEY = sk-ant-...   (from console.anthropic.com)
 ```
 
-4. Deploy. Netlify installs `@anthropic-ai/sdk` from `package.json`
-   automatically for the broker function.
+4. Deploy. The broker function has zero npm dependencies (it calls the
+   Anthropic API with Node's built-in fetch), so there is no install step.
 
 Without the key the site still works fully - only the broker chat replies
 with a configuration error.

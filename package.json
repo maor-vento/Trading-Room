@@ -1,9 +1,0 @@
-{
-  "name": "trading-room-functions",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Netlify Functions for the Trading Room simulator (AI broker chat via the Claude API).",
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.115.0"
-  }
-}
