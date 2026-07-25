@@ -115,21 +115,23 @@
   /* Recommended-today list */
   .hot-note { font-size: 11px; font-weight: 400; color: var(--muted); }
   .hot-row {
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    padding: 10px 12px; border-radius: 12px; border: 1px solid transparent;
+    padding: 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);
+    background: rgba(255,255,255,0.02); margin-bottom: 10px;
   }
-  .hot-row:hover { background: rgba(255,255,255,0.04); }
-  .hot-row .sym { font-weight: 600; font-size: 14px; }
-  .hot-row .sym small { color: var(--muted); font-weight: 500; display: block; font-size: 11px; direction: ltr; text-align: right; }
-  .hot-row .px { font-family: var(--mono); font-size: 13px; direction: ltr; text-align: left; }
-  .hot-row .px small { display: block; font-size: 11px; }
+  .hot-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .hot-row .sym { font-weight: 600; font-size: 14px; min-width: 0; }
+  .hot-row .sym small { color: var(--muted); font-weight: 500; display: block; font-size: 11px; direction: ltr; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hot-row .px { font-family: var(--mono); font-size: 13px; direction: ltr; text-align: left; white-space: nowrap; }
+  .hot-row .px small { display: inline; margin-left: 8px; font-size: 11px; }
   .hot-row .follow {
     background: transparent; border: 1px solid var(--border); color: var(--cyan);
-    font-family: inherit; font-size: 12px; font-weight: 600; padding: 7px 12px;
-    border-radius: 999px; cursor: pointer; white-space: nowrap;
+    font-size: 16px; font-weight: 700; width: 34px; height: 34px; flex: none;
+    border-radius: 50%; cursor: pointer;
   }
   .hot-row .follow:hover { border-color: var(--cyan); }
   .hot-row .follow.done { color: var(--green); border-color: rgba(52,211,153,0.4); cursor: default; }
+  .hot-row .reason { color: var(--muted); font-size: 12px; line-height: 1.7; margin-top: 8px; }
+  .hot-row .reason::before { content: '✦ '; color: var(--cyan); }
 
   .flash-up { animation: flashUp 0.6s; } .flash-down { animation: flashDown 0.6s; }
   @keyframes flashUp { 0% { background: rgba(52,211,153,0.2); } 100% { background: transparent; } }
@@ -338,9 +340,9 @@
       </div>
 
       <div class="card">
-        <h2>מומלצות היום <span class="hot-note">קריפטו: התנועות החזקות ב-24 שעות, בנפח מסחר גבוה</span></h2>
+        <h2>מניות מומלצות היום <span class="hot-note">נבחרות עם נימוק על ידי ה-AI מתוך תנועות היום בוול סטריט - לא ייעוץ השקעות</span></h2>
         <div id="hotlist"></div>
-        <div class="empty" id="hotEmpty">טוען נתוני שוק...</div>
+        <div class="empty" id="hotEmpty">סורק את השוק...</div>
       </div>
 
       <div class="card">
@@ -498,8 +500,8 @@
       })
       .catch(function () { /* keep last chart */ });
   }
-  // ---------- market scan (recommended today) ----------
-  var STABLE_BASES = { USDC: 1, TUSD: 1, FDUSD: 1, DAI: 1, BUSD: 1, USDP: 1, EUR: 1, EURI: 1, AEUR: 1, USD1: 1, XUSD: 1, PAXG: 1 };
+  // ---------- market scan ----------
+  // Full Binance map is kept for validating typed-in crypto symbols.
   function fetchAllTickers() {
     return fetch(API + '/ticker/24hr')
       .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
@@ -514,37 +516,50 @@
             volume: parseFloat(t.quoteVolume)
           };
         });
-        renderHot();
       })
       .catch(function () { /* keep last scan */ });
   }
-  function hotPicks() {
-    if (!allTickers) return [];
-    return Object.keys(allTickers)
-      .filter(function (s) {
-        var t = allTickers[s];
-        return t.volume > 20000000 && t.price > 0 && !STABLE_BASES[s.replace(/USDT$/, '')];
+
+  // ---------- recommended stocks (AI-picked, with reasons) ----------
+  var recs = [];
+  function fetchRecommendations() {
+    return fetch('/.netlify/functions/recommend')
+      .then(function (r) { if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+      .then(function (data) {
+        recs = data.items || [];
+        renderHot();
       })
-      .sort(function (a, b) { return allTickers[b].changePct - allTickers[a].changePct; })
-      .slice(0, 6);
+      .catch(function () {
+        if (!recs.length) {
+          document.getElementById('hotEmpty').textContent = 'המומלצות לא זמינות כרגע - ננסה שוב מאוחר יותר';
+        }
+      });
   }
   function renderHot() {
     var el = document.getElementById('hotlist');
-    var picks = hotPicks();
-    document.getElementById('hotEmpty').style.display = picks.length ? 'none' : 'block';
+    document.getElementById('hotEmpty').style.display = recs.length ? 'none' : 'block';
     el.innerHTML = '';
-    picks.forEach(function (s) {
-      var t = allTickers[s];
-      var followed = SYMBOLS.some(function (m) { return m.s === s; });
+    recs.forEach(function (it) {
+      var followed = SYMBOLS.some(function (m) { return m.s === it.symbol; });
       var row = document.createElement('div');
       row.className = 'hot-row';
-      row.innerHTML =
-        '<div class="sym">' + s.replace(/USDT$/, '') + '<small>' + fmtUsd(t.volume / 1e6, 0) + 'M מחזור</small></div>' +
-        '<div class="px">' + fmtPx(t.price) +
-          '<small class="' + (t.changePct >= 0 ? 'pos' : 'neg') + '">' + fmtPct(t.changePct) + '</small></div>' +
-        '<button class="follow' + (followed ? ' done' : '') + '">' + (followed ? '✓ במעקב' : '+ עקוב') + '</button>';
-      row.querySelector('.follow').addEventListener('click', function () {
-        if (!SYMBOLS.some(function (m) { return m.s === s; })) follow(s);
+      var top = document.createElement('div');
+      top.className = 'hot-top';
+      top.innerHTML =
+        '<div class="sym">' + it.symbol + '<small></small></div>' +
+        '<div class="px">' + fmtPx(it.price) +
+          '<small class="' + (it.changePct >= 0 ? 'pos' : 'neg') + '">' + fmtPct(it.changePct) + '</small></div>' +
+        '<button class="follow' + (followed ? ' done' : '') + '" title="הוסף למעקב">' + (followed ? '✓' : '+') + '</button>';
+      top.querySelector('small').textContent = it.name || '';
+      var reason = document.createElement('div');
+      reason.className = 'reason';
+      reason.textContent = it.reason || '';
+      row.appendChild(top);
+      row.appendChild(reason);
+      top.querySelector('.follow').addEventListener('click', function () {
+        if (!SYMBOLS.some(function (m) { return m.s === it.symbol; })) {
+          follow({ s: it.symbol, base: it.symbol, name: it.name || it.symbol, type: 'stock' });
+        }
       });
       el.appendChild(row);
     });
@@ -950,9 +965,8 @@
       trades_count: state.trades.length,
       holdings: holdings,
       market_24h: market,
-      recommended_today_top_movers: hotPicks().map(function (s) {
-        var t = allTickers[s];
-        return { symbol: s, price_usd: t.price, change_24h_pct: t.changePct, volume_24h_usd: t.volume };
+      recommended_stocks_today: recs.map(function (it) {
+        return { symbol: it.symbol, name: it.name, price_usd: it.price, change_pct: it.changePct, reason_he: it.reason };
       }),
       recent_trades: state.trades.slice(0, 8).map(function (t) {
         return { side: t.side, symbol: t.sym, qty: t.qty, price_usd: t.price, time: new Date(t.t).toISOString() };
@@ -1014,6 +1028,8 @@
   fetchKlines();
   fetchAllTickers();
   setInterval(fetchAllTickers, 300000);
+  fetchRecommendations();
+  setInterval(fetchRecommendations, 1800000);
   setInterval(function () {
     fetchTickers().then(function () {
       renderWatchlist(); renderStats(); renderHoldings(); renderChartHead();
