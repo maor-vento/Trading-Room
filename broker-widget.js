@@ -51,7 +51,8 @@
     'font-family:ui-monospace,monospace;font-size:9px;font-weight:700;letter-spacing:.5px;padding:2px 6px;border-radius:999px;}',
     '@keyframes bw-glow{0%,100%{box-shadow:0 8px 24px rgba(124,58,237,0.5);}50%{box-shadow:0 8px 32px rgba(34,211,238,0.65);}}',
     '@media (prefers-reduced-motion: reduce){#bw-fab{animation:none;}}',
-    '#bw-panel{position:fixed;bottom:94px;right:22px;z-index:9999;width:min(380px,calc(100vw - 32px));height:min(560px,calc(100vh - 120px));',
+    '#bw-panel{position:fixed;bottom:94px;right:22px;z-index:9999;width:min(380px,calc(100vw - 32px));',
+    'height:min(560px,calc(100vh - 120px));height:min(560px,calc(100dvh - 120px));',
     'display:none;flex-direction:column;direction:rtl;overflow:hidden;border-radius:18px;border:1px solid rgba(255,255,255,0.1);',
     'background:linear-gradient(180deg,#1d1540,#171030);color:#f2effb;font-family:Inter,system-ui,sans-serif;',
     'box-shadow:0 18px 50px rgba(0,0,0,0.55);}',
@@ -81,6 +82,14 @@
     '#bw-send{background:linear-gradient(90deg,#7c3aed,#22d3ee);border:none;border-radius:12px;color:#fff;font-family:inherit;',
     'font-weight:700;font-size:13px;padding:0 16px;cursor:pointer;}',
     '#bw-send:disabled{opacity:.4;cursor:not-allowed;}',
+    // Mobile: full-screen bottom sheet so nothing is clipped by the URL bar
+    // or the keyboard; dvh tracks the visible viewport as they move. Must be
+    // last in the sheet so it wins over the base rules above.
+    '@media (max-width:600px){',
+    '#bw-panel{top:0;right:0;bottom:0;left:0;width:100%;height:100%;height:100dvh;max-height:none;border-radius:0;border:none;}',
+    '#bw-fab.bw-hidden{display:none;}',
+    '#bw-input{font-size:16px;}',  // >=16px stops iOS from auto-zooming the page on focus
+    '}',
   ].join('');
 
   // ---------- DOM ----------
@@ -134,6 +143,9 @@
     var fab = document.getElementById('bw-fab');
     panel.classList.toggle('open', open);
     fab.innerHTML = open ? '<span class="x">✕</span>' : FAB_ICON;
+    // On phones the panel is full-screen - hide the floating button under it
+    // so only the header close button remains.
+    fab.classList.toggle('bw-hidden', open && window.matchMedia('(max-width:600px)').matches);
     if (open) {
       render();
       panel.querySelector('#bw-input').focus();
