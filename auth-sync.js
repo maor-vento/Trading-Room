@@ -78,6 +78,7 @@
     if (!user) return Promise.resolve();
     return sb.from('portfolios').upsert({
       user_id: user.id,
+      display_name: (user.email || 'סוחר').split('@')[0],
       data: collect(),
       updated_at: new Date().toISOString(),
     }).then(function (res) {
@@ -97,6 +98,7 @@
     if (/relation .* does not exist|schema cache/i.test(m)) {
       return 'נראה שטבלת portfolios לא הוקמה ב-Supabase (יש להריץ את ה-SQL מה-README)';
     }
+    if (/display_name/i.test(m)) return 'חסרה עמודת display_name בטבלה - הרץ את עדכון ה-SQL של טבלת המתחרים (README)';
     if (/row-level security/i.test(m)) return 'חסימת הרשאות (RLS) - בדוק את ה-policy בטבלה';
     return m.slice(0, 120);
   }
@@ -377,6 +379,14 @@
       });
     });
   }
+
+  // Small bridge so the page (community leaderboard) can read via the same
+  // client and know who is logged in.
+  window.trCloud = {
+    isConfigured: function () { return configured; },
+    client: function () { return sb; },
+    user: function () { return user; },
+  };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot);

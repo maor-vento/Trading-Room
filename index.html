@@ -133,6 +133,27 @@
   .hot-row .reason { color: var(--muted); font-size: 12px; line-height: 1.7; margin-top: 8px; }
   .hot-row .reason::before { content: '✦ '; color: var(--cyan); }
 
+  /* Competitors leaderboard */
+  .comp-row {
+    border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.02);
+    border-radius: 12px; margin-bottom: 8px; overflow: hidden;
+  }
+  .comp-head {
+    display: flex; align-items: center; gap: 10px; padding: 11px 12px; cursor: pointer;
+  }
+  .comp-head:hover { background: rgba(255,255,255,0.04); }
+  .comp-head .rank { font-size: 15px; width: 24px; text-align: center; flex: none; }
+  .comp-head .who { flex: 1; min-width: 0; font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .comp-head .who small { color: var(--muted); font-weight: 400; font-size: 11px; }
+  .comp-head .val { font-family: var(--mono); font-size: 12px; direction: ltr; text-align: left; flex: none; }
+  .comp-head .val small { display: block; font-size: 11px; }
+  .comp-detail { display: none; padding: 4px 12px 12px; border-top: 1px solid rgba(255,255,255,0.06); }
+  .comp-row.open .comp-detail { display: block; }
+  .comp-detail .line { display: flex; justify-content: space-between; font-size: 12px; padding: 5px 0; color: var(--muted); }
+  .comp-detail .line b { color: var(--text); font-family: var(--mono); direction: ltr; }
+  .comp-detail h4 { font-size: 12px; color: var(--muted); font-weight: 600; margin: 8px 0 2px; }
+  .comp-note { color: var(--muted); font-size: 11px; margin-top: 6px; line-height: 1.6; }
+
   .flash-up { animation: flashUp 0.6s; } .flash-down { animation: flashDown 0.6s; }
   @keyframes flashUp { 0% { background: rgba(52,211,153,0.2); } 100% { background: transparent; } }
   @keyframes flashDown { 0% { background: rgba(248,113,113,0.2); } 100% { background: transparent; } }
@@ -304,6 +325,12 @@
         <div class="trade-summary" id="tradeSummary"></div>
         <button class="exec buy" id="execBtn">קניה</button>
         <div class="form-msg" id="formMsg"></div>
+      </div>
+
+      <div class="card">
+        <h2>המתחרים 🏆 <span class="hot-note">כל הפרופילים - לחץ על שם לצפייה בתיק</span></h2>
+        <div id="compList"></div>
+        <div class="empty" id="compEmpty">התחבר כדי לראות את תיקי המתחרים</div>
       </div>
 
     </div>
@@ -996,6 +1023,154 @@
       })
     };
   };
+
+  // ---------- competitors leaderboard ----------
+  var compProfiles = [];
+  function docTrading(row) { return (row.data && row.data['paper-trading-v1']) || null; }
+  function priceOf(sym, holding) {
+    var p = prices[sym];
+    if (p && p.price) return p.price;
+    // no live price on this device - fall back to the holder's average cost
+    return holding && holding.qty ? holding.cost / holding.qty : 0;
+  }
+  function docEquity(t) {
+    if (!t) return null;
+    var eq = t.cash || 0;
+    Object.keys(t.holdings || {}).forEach(function (sym) {
+      var h = t.holdings[sym];
+      eq += h.qty * priceOf(sym, h);
+    });
+    return eq;
+  }
+  function fetchCommunity() {
+    var tc = window.trCloud;
+    var empty = document.getElementById('compEmpty');
+    if (!tc || !tc.isConfigured()) { empty.textContent = 'חשבונות עדיין לא הופעלו באתר'; return; }
+    if (!tc.user()) { empty.textContent = 'התחבר כדי לראות את תיקי המתחרים'; return; }
+    tc.client().from('portfolios').select('user_id, display_name, data, updated_at')
+      .then(function (res) {
+        if (res.error) { empty.textContent = 'לא הצלחתי לטעון את המתחרים - ' + (res.error.message || '').slice(0, 80); return; }
+        compProfiles = res.data || [];
+        return ensureCommunityPrices().then(renderCommunity);
+      });
+  }
+  // Price holdings we don't already track so other users' equity is honest.
+  function ensureCommunityPrices() {
+    var missingCrypto = [], missingStock = [];
+    compProfiles.forEach(function (row) {
+      var t = docTrading(row);
+      Object.keys((t && t.holdings) || {}).forEach(function (sym) {
+        if (prices[sym]) return;
+        var list = /USDT$/.test(sym) ? missingCrypto : missingStock;
+        if (list.indexOf(sym) === -1 && list.length < 20) list.push(sym);
+      });
+    });
+    var jobs = [];
+    if (missingCrypto.length) {
+      jobs.push(fetch(API + '/ticker/24hr?symbols=' + encodeURIComponent(JSON.stringify(missingCrypto)))
+        .then(function (r) { return r.ok ? r.json() : []; })
+        .then(function (arr) {
+          arr.forEach(function (t) { prices[t.symbol] = { price: parseFloat(t.lastPrice), changePct: parseFloat(t.priceChangePercent) }; });
+        }).catch(function () {}));
+    }
+    if (missingStock.length) {
+      jobs.push(fetch(QUOTES_URL + '?symbols=' + encodeURIComponent(missingStock.join(',')))
+        .then(function (r) { return r.ok ? r.json() : {}; })
+        .then(function (map) {
+          Object.keys(map).forEach(function (s) { prices[s] = { price: map[s].price, changePct: map[s].changePct }; });
+        }).catch(function () {}));
+    }
+    return Promise.all(jobs);
+  }
+  function renderCommunity() {
+    var el = document.getElementById('compList');
+    var empty = document.getElementById('compEmpty');
+    var me = window.trCloud && window.trCloud.user();
+    var rows = compProfiles.map(function (row) {
+      var t = docTrading(row);
+      return { row: row, t: t, equity: docEquity(t) };
+    }).filter(function (x) { return x.t && x.equity != null; })
+      .sort(function (a, b) { return b.equity - a.equity; });
+    empty.style.display = rows.length ? 'none' : 'block';
+    if (!rows.length) return;
+    el.innerHTML = '';
+    var medals = ['🥇', '🥈', '🥉'];
+    rows.forEach(function (x, i) {
+      var pnl = x.equity - START_CASH;
+      var pnlPct = (pnl / START_CASH) * 100;
+      var isMe = me && x.row.user_id === me.id;
+      var wrap = document.createElement('div');
+      wrap.className = 'comp-row';
+      var head = document.createElement('div');
+      head.className = 'comp-head';
+      var rank = document.createElement('span');
+      rank.className = 'rank';
+      rank.textContent = medals[i] || (i + 1);
+      var who = document.createElement('div');
+      who.className = 'who';
+      who.textContent = x.row.display_name || 'סוחר';
+      if (isMe) {
+        var meTag = document.createElement('small');
+        meTag.textContent = ' (אתה)';
+        who.appendChild(meTag);
+      }
+      var val = document.createElement('div');
+      val.className = 'val';
+      val.innerHTML = fmtUsd(x.equity) + '<small class="' + (pnl >= 0 ? 'pos' : 'neg') + '">' + fmtPct(pnlPct) + '</small>';
+      head.appendChild(rank); head.appendChild(who); head.appendChild(val);
+      var detail = buildCompDetail(x.t, x.row.updated_at);
+      head.addEventListener('click', function () { wrap.classList.toggle('open'); });
+      wrap.appendChild(head); wrap.appendChild(detail);
+      el.appendChild(wrap);
+    });
+    if (rows.length === 1) {
+      var note = document.createElement('div');
+      note.className = 'comp-note';
+      note.textContent = 'רואה רק את עצמך? ודא שהורץ עדכון ה-SQL של טבלת המתחרים (README), ושחברים נרשמו ועשו עסקה.';
+      el.appendChild(note);
+    }
+  }
+  function buildCompDetail(t, updatedAt) {
+    var d = document.createElement('div');
+    d.className = 'comp-detail';
+    function line(label, valHtml, cls) {
+      var row = document.createElement('div');
+      row.className = 'line';
+      var l = document.createElement('span'); l.textContent = label;
+      var b = document.createElement('b'); b.innerHTML = valHtml;
+      if (cls) b.className = cls;
+      row.appendChild(l); row.appendChild(b);
+      d.appendChild(row);
+    }
+    line('מזומן פנוי', fmtUsd(t.cash));
+    var holdKeys = Object.keys(t.holdings || {});
+    if (holdKeys.length) {
+      var h4 = document.createElement('h4'); h4.textContent = 'אחזקות'; d.appendChild(h4);
+      holdKeys.forEach(function (sym) {
+        var h = t.holdings[sym];
+        var px = priceOf(sym, h);
+        var v = h.qty * px;
+        var pl = v - h.cost;
+        line(sym.replace(/USDT$/, ''), fmtUsd(v) + ' <span class="' + (pl >= 0 ? 'pos' : 'neg') + '" style="font-size:11px;">' + fmtPct(h.cost ? (pl / h.cost) * 100 : 0) + '</span>');
+      });
+    }
+    var trades = (t.trades || []).slice(0, 3);
+    if (trades.length) {
+      var h42 = document.createElement('h4'); h42.textContent = 'עסקאות אחרונות'; d.appendChild(h42);
+      trades.forEach(function (tr) {
+        line((tr.side === 'buy' ? 'קניה ' : 'מכירה ') + String(tr.sym).replace(/USDT$/, ''), fmtUsd(tr.total));
+      });
+    }
+    if (updatedAt) {
+      var upd = document.createElement('div');
+      upd.className = 'comp-note';
+      upd.textContent = 'עודכן: ' + new Date(updatedAt).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      d.appendChild(upd);
+    }
+    return d;
+  }
+  setTimeout(fetchCommunity, 2000);
+  setInterval(fetchCommunity, 120000);
 
   // ---------- events ----------
   document.getElementById('tabBuy').addEventListener('click', function () { setSide('buy'); });

@@ -75,6 +75,15 @@ create policy "own row" on public.portfolios
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 ```
 
+2b. For the competitors leaderboard (every signed-in user can view everyone's
+   portfolio), also run:
+
+```sql
+alter table public.portfolios add column if not exists display_name text;
+create policy "authenticated read all" on public.portfolios
+  for select to authenticated using (true);
+```
+
 3. Authentication → Sign In / Up: the Email provider is on by default.
    Optional: turn OFF "Confirm email" so friends can skip the
    verification-mail step.
