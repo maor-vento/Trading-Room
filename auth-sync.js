@@ -24,11 +24,15 @@
 
   // ---------- state <-> document ----------
   function collect() {
-    var doc = { v: 1 };
+    var doc = { v: 1, saved_at: Date.now() };
     KEYS.forEach(function (k) {
       try { doc[k] = JSON.parse(localStorage.getItem(k)); } catch (e) { doc[k] = null; }
     });
     return doc;
+  }
+  function hasProgress(doc) {
+    var t = doc && doc[KEYS[0]];
+    return !!(t && ((t.trades && t.trades.length) || (doc[KEYS[1]] && doc[KEYS[1]].length)));
   }
   function apply(doc) {
     KEYS.forEach(function (k) {
@@ -37,6 +41,7 @@
   }
   function clearLocal() {
     KEYS.forEach(function (k) { localStorage.removeItem(k); });
+    localStorage.removeItem('tr-local-modified');
   }
   // Key-order-independent serialization: Postgres jsonb reorders object keys,
   // so a plain JSON.stringify comparison would always see a difference.
@@ -49,6 +54,15 @@
     }
     return JSON.stringify(x);
   }
+  // Compare only the payload, not the saved_at stamp.
+  function sameData(a, b) {
+    function core(d) {
+      var o = {};
+      KEYS.forEach(function (k) { o[k] = d ? d[k] : null; });
+      return stable(o);
+    }
+    return core(a) === core(b);
+  }
 
   // ---------- cloud ----------
   function pull() {
@@ -58,6 +72,8 @@
         return res.data ? res.data.data : null;
       });
   }
+  var lastPushOk = true;
+  var lastPushTime = null;
   function push() {
     if (!user) return Promise.resolve();
     return sb.from('portfolios').upsert({
@@ -65,8 +81,45 @@
       data: collect(),
       updated_at: new Date().toISOString(),
     }).then(function (res) {
-      setStatus(res.error ? 'שגיאת סנכרון' : null);
+      lastPushOk = !res.error;
+      if (res.error) {
+        setStatus(true);
+        syncBanner('השמירה בענן נכשלת! ' + friendlyDbError(res.error) + ' - הנתונים כרגע נשמרים רק בדפדפן הזה.');
+      } else {
+        lastPushTime = new Date();
+        setStatus(false);
+        syncBanner(null);
+      }
     });
+  }
+  function friendlyDbError(err) {
+    var m = (err && err.message) || '';
+    if (/relation .* does not exist|schema cache/i.test(m)) {
+      return 'נראה שטבלת portfolios לא הוקמה ב-Supabase (יש להריץ את ה-SQL מה-README)';
+    }
+    if (/row-level security/i.test(m)) return 'חסימת הרשאות (RLS) - בדוק את ה-policy בטבלה';
+    return m.slice(0, 120);
+  }
+  function syncBanner(text) {
+    var el = document.getElementById('tr-sync-banner');
+    if (!text) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'tr-sync-banner';
+      el.style.cssText = 'position:fixed;top:0;right:0;left:0;z-index:10001;direction:rtl;background:#2d1220;' +
+        'color:#f87171;border-bottom:1px solid rgba(248,113,113,0.5);font:13px/1.6 Inter,system-ui,sans-serif;' +
+        'padding:10px 40px 10px 14px;text-align:center;';
+      var x = document.createElement('button');
+      x.textContent = '✕';
+      x.style.cssText = 'position:absolute;right:10px;top:8px;background:none;border:none;color:#f87171;cursor:pointer;font-size:14px;';
+      x.addEventListener('click', function () { el.remove(); });
+      el.appendChild(x);
+      var span = document.createElement('span');
+      span.id = 'tr-sync-banner-text';
+      el.appendChild(span);
+      document.body.appendChild(el);
+    }
+    el.querySelector('#tr-sync-banner-text').textContent = text;
   }
   function schedulePush() {
     if (!user) return;
@@ -75,11 +128,18 @@
   }
 
   // Hook localStorage writes from the app so we don't have to touch its code.
+  var MODIFIED_KEY = 'tr-local-modified';
   var origSetItem = Storage.prototype.setItem;
   Storage.prototype.setItem = function (k, v) {
     origSetItem.call(this, k, v);
-    if (KEYS.indexOf(k) !== -1) schedulePush();
+    if (KEYS.indexOf(k) !== -1) {
+      try { origSetItem.call(localStorage, MODIFIED_KEY, String(Date.now())); } catch (e) {}
+      schedulePush();
+    }
   };
+  function localModifiedAt() {
+    return parseInt(localStorage.getItem(MODIFIED_KEY) || '0', 10) || 0;
+  }
   window.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden' && user) { clearTimeout(pushTimer); push(); }
   });
@@ -241,11 +301,19 @@
     user = u;
     renderChip();
     pull().then(function (cloudDoc) {
-      if (cloudDoc) {
-        // Existing profile: the cloud copy is the source of truth.
-        apply(cloudDoc);
-        try { sessionStorage.setItem(APPLIED_FLAG, '1'); } catch (e) {}
-        location.reload();
+      var localDoc = collect();
+      if (cloudDoc && (!hasProgress(localDoc) || sameData(cloudDoc, localDoc))) {
+        // No meaningful local work - adopt the cloud copy quietly.
+        adoptCloud(cloudDoc);
+      } else if (cloudDoc) {
+        // Real conflict: both cloud and this browser hold trading history.
+        // Let the user decide instead of silently destroying either side.
+        var takeCloud = confirm(
+          'נמצא תיק שמור בענן לחשבון הזה, אבל גם בדפדפן הנוכחי יש היסטוריית מסחר.\n\n' +
+          'אישור = לטעון את התיק מהענן (מה שבדפדפן הזה יוחלף)\n' +
+          'ביטול = לשמור את התיק מהדפדפן הזה לענן (מה שבענן יוחלף)');
+        if (takeCloud) adoptCloud(cloudDoc);
+        else push().then(function () { closeModal(); });
       } else {
         // First login on this account: seed the cloud with what's here.
         push().then(function () {
@@ -253,17 +321,30 @@
         });
         closeModal();
       }
-    }).catch(function () { setStatus('err'); closeModal(); });
+    }).catch(function (e) {
+      setStatus(true);
+      syncBanner('לא הצלחתי לקרוא את התיק מהענן - ' + friendlyDbError(e));
+      closeModal();
+    });
+  }
+  function adoptCloud(cloudDoc) {
+    apply(cloudDoc);
+    try { sessionStorage.setItem(APPLIED_FLAG, '1'); } catch (e) {}
+    location.reload();
   }
 
   function logout() {
     clearTimeout(pushTimer);
     push().then(function () {
-      return sb.auth.signOut();
-    }).then(function () {
-      user = null;
-      clearLocal(); // don't leave this user's portfolio on a shared device
-      location.reload();
+      if (!lastPushOk && !confirm(
+        'אזהרה: השמירה האחרונה לענן נכשלה, והתנתקות תמחק את הנתונים מהדפדפן הזה.\n\nלהתנתק בכל זאת?')) {
+        return;
+      }
+      return sb.auth.signOut().then(function () {
+        user = null;
+        clearLocal(); // don't leave this user's portfolio on a shared device
+        location.reload();
+      });
     });
   }
 
@@ -282,12 +363,18 @@
       if (justApplied) return;
       pull().then(function (cloudDoc) {
         if (!cloudDoc) return push();
-        if (stable(cloudDoc) !== stable(collect())) {
-          apply(cloudDoc);
-          try { sessionStorage.setItem(APPLIED_FLAG, '1'); } catch (e) {}
-          location.reload();
-        }
-      }).catch(function () { setStatus('err'); });
+        var localDoc = collect();
+        if (sameData(cloudDoc, localDoc)) return;
+        // Prefer whichever side was saved more recently. Local wins ties -
+        // e.g. trades made while the last push failed must not be clobbered
+        // by a stale cloud copy.
+        var localNewer = hasProgress(localDoc) && localModifiedAt() > (cloudDoc.saved_at || 0);
+        if (localNewer) return push();
+        adoptCloud(cloudDoc);
+      }).catch(function (e) {
+        setStatus(true);
+        syncBanner('לא הצלחתי לקרוא את התיק מהענן - ' + friendlyDbError(e));
+      });
     });
   }
 
